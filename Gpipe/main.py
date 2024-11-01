@@ -6,6 +6,13 @@ import os
 from utils import *
 import time
 import copy
+from transformers import AutoModelForCausalLM,AutoTokenizer 
+from transformers import LlamaTokenizer,LlamaForCausalLM
+from huggingface_hub import login
+import torch
+from transformers import LlamaTokenizer,LlamaForCausalLM
+from datasets import load_dataset
+from torch.utils.data import DataLoader
 
 
 def set_seed(seed):
@@ -13,26 +20,18 @@ def set_seed(seed):
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
-def my_optimizer(model_list):
-    parameters=[]
-    for module in model_list:
-        module_parameter=list(module.parameters())  # parameters()是nn.Module自带的函数，返回一个生成器，可以迭代调用出模型每一层的参数大小
-        parameters+=module_parameter
-    return torch.optim.Adam(parameters,lr=0.0001,weight_decay=1e-3)
-
-
 
 if __name__ =="__main__":
     parser=argparse.ArgumentParser()
     parser.add_argument('--batch_size',default=64,type=int,help='batch size')
     parser.add_argument('--num_chunks',default=4,type=int,help='M, namely number of micro batches')
     parser.add_argument('--seq_length', default=128, type=int, help='sequence length')
-    parser.add_argument('--embedding_dim', default=1024, type=int, help='embedding dimension in a Transformer layer')
+    parser.add_argument('--embedding_dim', default=4096, type=int, help='embedding dimension in a Transformer layer, 4096 for Llama-2-7b')
     parser.add_argument('--ff_dim', default=4096, type=int, help='dimension in a FeedForward layer')
-    parser.add_argument('--num_iterations', default=2, type=int, help='number of iterations, namely number of batches')
+    parser.add_argument('--num_iterations', default=5, type=int, help='number of iterations, namely number of batches')
     parser.add_argument('--num_stages',default=8,type=int,help='number of stages')
-    parser.add_argument('--num_layers',default=24,type=int,help='number of layers')
-    parser.add_argument('--num_heads',default=32,type=int,help='number of attention heads in a layer')
+    # parser.add_argument('--num_layers',default=24,type=int,help='number of layers')
+    # parser.add_argument('--num_heads',default=32,type=int,help='number of attention heads in a layer')
 
 
 
@@ -46,7 +45,38 @@ if __name__ =="__main__":
     local_rank=int(os.environ["LOCAL_RANK"]) # 进程在当前节点上的序号
     torch.cuda.set_device(local_rank%local_size) # 确保进程在多个GPU上是平分的
 
+    # 从hugging face加载模型,默认放在CPU上
+   
+    # login(
+    #     token="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",
+    #     add_to_git_credential=True
+    # )
+    # model_path='meta-llama/Llama-2-7b-hf'
+    # model=AutoModelForCausalLM.from_pretrained(model_path,cache_dir='transformer/model_cache')
+    # tokenizer=AutoTokenizer.from_pretrained(model_path)
 
+    # 从缓存加载模型，默认放在CPU上
+    model_path='/data/home/liuhuimin/.cache/huggingface/hub/models--meta-llama--Llama-2-7b-hf/snapshots/first_cache'
+    model=LlamaForCausalLM.from_pretrained(model_path)
+    config=model.config
+    tokenizer=AutoTokenizer.from_pretrained(model_path)
+    embedding_layer=model.model.embed_tokens
+    layers_list=list(model.model.layers)
+
+    # 数据集
+    sst2_dataset = load_dataset("glue", "sst2")
+    def tokenize_function(examples):
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token=tokenizer.eos_token
+        return tokenizer(examples['sentence'],truncation=True,padding='max_length',max_length=args.seq_length)
+    tokenized_datasets=sst2_dataset.map(tokenize_function,batched=True)
+    tokenized_datasets = tokenized_datasets.remove_columns(["sentence", "idx"])
+    tokenized_datasets = tokenized_datasets.rename_column("label", "labels")
+    tokenized_datasets.set_format("torch")
+    train_dataloader = DataLoader(tokenized_datasets["train"], batch_size=(args.batch_size//args.num_chunks), shuffle=True)
+    train_batches = list(train_dataloader)
+
+    # action list
     action_list=generate_action_list(world_size=world_size,num_stages=args.num_stages,num_chunks=args.num_chunks)[global_rank]
     print('rank = '+str(global_rank)+'action_list = '+str(action_list))
 
@@ -54,11 +84,9 @@ if __name__ =="__main__":
     # 输出是三个维度(batch_size,seq_length,vocab_size),经过一个softmax层，得到和y一样的维度(batch_size,seq_length)
     correct_result=torch.rand(args.batch_size*args.num_iterations,args.seq_length) # 用来计算LOSS
     
-    module_list=generate_module(args) # 每个stage得拿多个module,因为有prefetchs
-    model_list=copy.deepcopy(module_list)
-    model=generate_model(args)
-    pipeline=Pipeline(module_list,world_size,global_rank,local_rank,args.batch_size,args.num_chunks,args.seq_length,
-    args.embedding_dim,args.ff_dim,args.num_stages)
+    module_list=generate_module(args,config,layers_list) # 每个stage得拿多个module,因为有prefetchs
+    # model_list=copy.deepcopy(module_list)
+    pipeline=Pipeline(args,module_list,world_size,global_rank,local_rank,train_batches,embedding_layer)
 
     torch.cuda.synchronize()
     start_time=time.time()
@@ -112,24 +140,24 @@ if __name__ =="__main__":
     #     print("baseline training time = {}".format(training_time))
 
 
-    if global_rank==0:
-        another_optimizer=my_optimizer(model_list)
-        merged_model=merge_transformer_models(model_list,hidden_dim=args.embedding_dim,nhead=args.num_heads,ff_dim=args.ff_dim,dropout=0.0,norm_first=False,use_fp16=False)
-        merged_model.to(torch.device(f'cuda:{0}'))
-        start_time=time.time()
-        for it in range(args.num_iterations):
-            for i in range(args.num_chunks):
-                pipeline.input_data[it][i].to(torch.device(f'cuda:{0}'))    
-                pipeline.input_data[it][i].requires_grad_(True)
-                output=merged_model(pipeline.input_data[it][i])
-                torch.autograd.backward(output.mean())
-                # print("continue model output",it,i,output)
+    # if global_rank==0:
+    #     another_optimizer=my_optimizer(model_list)
+    #     merged_model=merge_transformer_models(model_list,hidden_dim=args.embedding_dim,nhead=args.num_heads,ff_dim=args.ff_dim,dropout=0.0,norm_first=False,use_fp16=False)
+    #     merged_model.to(torch.device(f'cuda:{0}'))
+    #     start_time=time.time()
+    #     for it in range(args.num_iterations):
+    #         for i in range(args.num_chunks):
+    #             pipeline.input_data[it][i].to(torch.device(f'cuda:{0}'))    
+    #             pipeline.input_data[it][i].requires_grad_(True)
+    #             output=merged_model(pipeline.input_data[it][i])
+    #             torch.autograd.backward(output.mean())
+    #             # print("continue model output",it,i,output)
 
-            another_optimizer.step()
-            # print("continue model grad",pipeline.input_data[-1].grad)
-        finish_time=time.time()
-        training_time=finish_time-start_time
-        print("baseline training time = {}".format(training_time))
+    #         another_optimizer.step()
+    #         # print("continue model grad",pipeline.input_data[-1].grad)
+    #     finish_time=time.time()
+    #     training_time=finish_time-start_time
+    #     print("baseline training time = {}".format(training_time))
 
     
     

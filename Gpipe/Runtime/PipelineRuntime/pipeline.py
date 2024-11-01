@@ -1,6 +1,6 @@
 import torch
 import torch.distributed as dist
-from model.transformer_lm import TransformerLM
+from transformer.model.transformer_lm import TransformerLM
 import copy
 from torchviz import make_dot
 
@@ -8,32 +8,34 @@ def print_grad(grad):
     print("Grad:", grad)
 
 class Pipeline():
-    def __init__(self,module_list:list,world_size:int,global_rank:int,local_rank:int,batch_size:int,
-    num_chunks:int,seq_length:int,embedding_dim:int,ff_dim:int,num_stages:int):
+    def __init__(self,args,module_list:list,world_size:int,global_rank:int,local_rank:int,train_batches,embedding_layer):
         self.module_list=module_list
         self.src_list=[] # stage0拿到的输入
-        self.activation_list=[[] for _ in range(num_stages)] # 一个gpu可能负责多个stage,每个stage又有很多micro_batch的activation,所以写成长度为num_stages的数组
-        self.grad_list=[[] for _ in range(num_stages)] 
-        self.input_list=[[] for _ in range(num_stages)] # 虽然和activation_list中的元素是一样的东西，但是因为在my_stage也无法确定input是来自哪个stage的activation,所以单独写一个input_list
-        self.batch_size=batch_size
-        self.num_chunks=num_chunks
-        self.seq_length=seq_length
-        self.embedding_dim=embedding_dim
-        self.ff_dim=ff_dim
+        self.activation_list=[[] for _ in range(args.num_stages)] # 一个gpu可能负责多个stage,每个stage又有很多micro_batch的activation,所以写成长度为num_stages的数组
+        self.grad_list=[[] for _ in range(args.num_stages)] 
+        self.input_list=[[] for _ in range(args.num_stages)] # 虽然和activation_list中的元素是一样的东西，但是因为在my_stage也无法确定input是来自哪个stage的activation,所以单独写一个input_list
+        self.batch_size=args.batch_size
+        self.num_chunks=args.num_chunks
+        self.seq_length=args.seq_length
+        self.embedding_dim=args.embedding_dim
+        self.ff_dim=args.ff_dim
         self.world_size=world_size
-        self.num_stages=num_stages
+        self.num_stages=args.num_stages
         self.my_rank=global_rank
         self.local_rank=local_rank
         self.input_chunk_id=0
+        self.dataloader_id=0
         self.last_send=None # 上一次异步发送是否成功结束的标志
         self.last_receive=None # 上一次异步接收数据是否成功的标志
         self.dtype=torch.float32
         self.total_parameters=0
         self.optimizer=self.construct_optimizer()
-        self.input_data = [[] for _ in range(2)]
+        self.input_data = [[] for _ in range(args.num_iterations)]
         self.iteration=-1
         self.device=torch.device(f'cuda:{local_rank}')
         self.last_recv_tensor=torch.zeros([self.batch_size//self.num_chunks,self.seq_length,self.embedding_dim],dtype=self.dtype,device=self.device)
+        self.train_batches=train_batches
+        self.embedding_layer=embedding_layer
 
     def construct_optimizer(self):
         parameters=[]
@@ -43,7 +45,6 @@ class Pipeline():
             self.total_parameters+=sum(p.numel() for p in module_parameter)
 
         return torch.optim.Adam(parameters,lr=0.0001,weight_decay=1e-3)
-
 
 
 
@@ -77,7 +78,8 @@ class Pipeline():
 
     def forward_first(self,my_stage_id:int,target_stage_id:int):
         input_data=self.get_data()
-        input_data.requires_grad_(True)
+        self.embedding_layer.to(self.device)
+        input_data=self.embedding_layer(input_data)
         self.input_data[self.iteration].append(input_data)
         self.input_list[my_stage_id].append(input_data)
         result_tensor=self.forward_compute(input_data,my_stage_id)
@@ -117,7 +119,6 @@ class Pipeline():
         result_tensor=self.forward_compute(input_data,my_stage_id)
         self.activation_list[my_stage_id].append(result_tensor)
         # print("pipeline output ",my_stage_id,self.iteration,self.input_chunk_id,result_tensor)
-
         return 
 
 
@@ -139,6 +140,7 @@ class Pipeline():
         my_activation=self.activation_list[my_stage_id].pop()
         self.backward_compute(my_activation,input_grad) 
         # print("send input grad ",my_stage_id,input_tensor.grad.shape,input_tensor.grad)
+        print("b_first")
         return
 
     def backward_middle(self,source_stage_id:int,my_stage_id:int,target_stage_id:int):
@@ -165,7 +167,6 @@ class Pipeline():
         self.backward_compute(my_activation)
         target_rank=target_stage_id%self.world_size
         self.send_grad(input_tensor.grad,target_rank)
-
         # print("input grad ",my_stage_id,input_tensor.grad)
 
         return
@@ -258,9 +259,16 @@ class Pipeline():
         self.src_list=[]
         self.iteration+=1
         self.input_data[self.iteration]=[]
-        for _ in range(self.num_chunks):
-            input_tensor_shard=torch.rand(self.batch_size//self.num_chunks,self.seq_length,self.embedding_dim).requires_grad_(True).to("cuda")
-            self.src_list.append(input_tensor_shard)
+        # for _ in range(self.num_chunks):
+        #     input_tensor_shard=torch.rand(self.batch_size//self.num_chunks,self.seq_length,self.embedding_dim).requires_grad_(True).to("cuda")
+        #     self.src_list.append(input_tensor_shard)
+        for i in range(self.dataloader_id,self.dataloader_id+self.num_chunks):
+            batch = self.train_batches[i]
+            input_ids = batch['input_ids']  # Input tokens
+            input_ids=input_ids.to("cuda")
+            attention_mask = batch['attention_mask']  # Attention mask if needed
+            self.src_list.append(input_ids)
+        self.dataloader_id+=self.num_chunks
         
         return 
 
