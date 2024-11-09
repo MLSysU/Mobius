@@ -1,2 +1,2 @@
-from .OffloadRuntime import *
+from .SwapRuntime import *
 from .PipelineRuntime import *

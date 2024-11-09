@@ -4,7 +4,12 @@ import torch.nn as nn
 from typing import Any
 import copy
 
+
 class SequentialWithCustomForward(nn.Sequential):
+    '''
+    Used in utils/generate_module().
+    Because the Decoder layer in Llama can not be concatenate by nn.Sequential, here is another class to process the concatenation.
+    '''
     def forward(self, input_tensor):
         hidden_states = input_tensor 
         i=0 
@@ -15,7 +20,11 @@ class SequentialWithCustomForward(nn.Sequential):
             else:
                 hidden_states = output  # Otherwise, it's a single tensor
         return hidden_states
-        
+
+'''
+class EmbeddingLayer, class PositionalEncodingLayer, class FeedForwardLayer, class Attention are all components of TransformerDecoderLayer,
+and TransformerLM is composed of TransformerDecoderLayer.
+'''       
 class EmbeddingLayer(nn.Embedding):
     """Wrapped nn.Embedding layer to allow for weight initialization."""
 
@@ -134,7 +143,6 @@ class TransformerLM(nn.Sequential):
         super(TransformerLM,self).__init__(*layers)
 
     def forward(self,inputs,chunk_id=None):
-        # print("foward inputs ",inputs)
         outputs=super().forward(inputs)
         return outputs
 
