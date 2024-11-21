@@ -6,6 +6,7 @@ from torchviz import make_dot
 from Runtime import *
 from utils import *
 import torch.nn.functional as F
+import time
 
 def print_grad(grad):
     print("Grad:", grad)
@@ -43,7 +44,12 @@ class Pipeline():
         self.norm_layer=norm_layer.to(self.device)
         self.lm_head=lm_head.to(self.device)
         self.state_dict = [{} for _ in range(self.num_stages)] 
-        self.module=copy.deepcopy(self.module_list[self.my_rank])
+        self.module=None
+        self.local_module_list=[]
+        self.load_stream=torch.cuda.Stream()
+        self.comm_stream=torch.cuda.Stream()
+        self.comp_stream=torch.cuda.Stream()
+        self.offload_stream=torch.cuda.Stream()
 
     def construct_optimizer(self):
         parameters=[]
@@ -51,8 +57,8 @@ class Pipeline():
             module_parameter=list(module.parameters())  # parameters()是nn.Module自带的函数，返回一个生成器，可以迭代调用出模型每一层的参数大小
             parameters+=module_parameter
             self.total_parameters+=sum(p.numel() for p in module_parameter)
-
         return torch.optim.Adam(parameters,lr=0.0001,weight_decay=1e-3)
+        
 
 
 
@@ -85,7 +91,7 @@ class Pipeline():
     # 2.中间的stage需要从上个stage那里拿到计算结果，前向计算，向下一个stage发送计算结果
     # 3.最后一个stage需要从上个stage那里拿到计算结果，前向计算
 
-    def forward_first(self,my_stage_id:int,target_stage_id:int,chunk_id:int):
+    def forward_first(self,my_stage_id:int,target_stage_id:int,chunk_id:int):     
         # get data
         input_data=self.get_data()
         # embedding layer
@@ -196,22 +202,45 @@ class Pipeline():
     '''
     下面写的函数都是stage完整行为中可能用到的片段操作
     '''
-    def forward_compute(self,input_tensor:torch.tensor,my_stage_id:int,chunk_id:int): 
+    def forward_compute(self,input_tensor:torch.tensor,my_stage_id:int,chunk_id:int):    
         # load module
         if chunk_id==0:
-            self.module.to(self.device)
+            with torch.cuda.stream(self.load_stream):
+                # load my model
+                # if myself has been prefetched
+                if len(self.local_module_list)>my_stage_id//self.world_size and self.local_module_list[my_stage_id//self.world_size][1]=='gpu':
+                    self.module=self.local_module_list[my_stage_id//self.world_size][0]
+                else:
+                    # The first iteration, we need to load the model from the global model list
+                    if len(self.local_module_list)<self.num_stages//self.world_size:
+                        self.module=copy.deepcopy(self.module_list[my_stage_id])
+                        self.module.to(self.device)
+                        self.local_module_list.append([self.module,'gpu'])
+                    # The following iterations, we need to load the model from the local model list
+                    else:
+                        self.module=self.local_module_list[my_stage_id//self.world_size][0]
+                        load(self.module,self.module_list[my_stage_id])
+                        self.local_module_list[my_stage_id//self.world_size][1]='gpu'
+                # prefetch model
+                if my_stage_id+self.world_size<self.num_stages:
+                    next_stage_id=my_stage_id+self.world_size
+                    if len(self.local_module_list)<self.num_stages//self.world_size:
+                        next_module=copy.deepcopy(self.module_list[next_stage_id])
+                        next_module.to(self.device)
+                        self.local_module_list.append([next_module,'gpu'])
+                    else:
+                        next_module=self.local_module_list[next_stage_id//self.world_size][0]
+                        load(next_module,self.module_list[next_stage_id])
+                        self.local_module_list[next_stage_id//self.world_size][1]='gpu'
         # module.register_forward_pre_hook(reload)
+
         # compute
         activation=self.module(input_tensor)
+
         # offload
-        # if chunk_id==self.num_chunks-1:
-        #     if my_stage_id==1:
-        #         print("before offload")
-        #         print_memory_status(self.device)
-        #     offload(module,self.state_dict,my_stage_id)
-        #     if my_stage_id==1:
-        #         print("after offload")
-        #         print_memory_status(self.device)
+        if chunk_id==self.num_chunks-1:
+            offload(self.module,self.module_list[my_stage_id])
+            self.local_module_list[my_stage_id//self.world_size][1]='cpu'
         return activation
 
 
@@ -219,13 +248,21 @@ class Pipeline():
         # 按照数学公式:计算权重的梯度需要下一个stage发送来的累积梯度+本stage的activation
         # Loss/偏w=下一个stage发送来的累积*(偏activation/偏w)
         # 下一个阶段发送来的梯度累计是关于下一层的输入的梯度
-        # 这里先用.mean()来代替
         # 当backward()只有一个参数时，那个参数必须是标量；如果有grad_tensor时，activation可以是tensor类型
+        if chunk_id==0:
+            with torch.cuda.stream(self.load_stream):
+                # load_model
+                if self.local_module_list[my_stage_id//self.world_size][1]=='cpu':
+                    self.module=self.local_module_list[my_stage_id//self.world_size][0]
+                    load(self.module,self.module_list[my_stage_id])
+                    self.local_module_list[my_stage_id//self.world_size][1]='gpu'
 
-        # load_model
-        # if chunk_id==0:
-        #     module=self.module_list[my_stage_id]
-            # load(module,self.state_dict[my_stage_id])
+                # prefetch model
+                if my_stage_id-self.world_size>=0:
+                    last_stage_id=my_stage_id-self.world_size
+                    last_module=self.local_module_list[last_stage_id//self.world_size][0]
+                    load(last_module,self.module_list[last_stage_id])
+                    self.local_module_list[last_stage_id//self.world_size][1]='gpu'
 
         if accu_grad is None:
             output=self.norm_layer(activation)
@@ -237,9 +274,10 @@ class Pipeline():
             # torch.autograd.backward(activation.mean)
         else:
             torch.autograd.backward(activation,grad_tensors=accu_grad)
-
         # offload model
-        # offload(module,self.state_dict,my_stage_id)
+        if chunk_id==self.num_chunks-1:
+            offload(self.module,self.module_list[my_stage_id])
+            self.local_module_list[my_stage_id//self.world_size][1]='cpu'
 
         return 
 
@@ -287,6 +325,7 @@ class Pipeline():
         self.last_receive=receive
 
         return 
+
 
 
     def get_data(self):

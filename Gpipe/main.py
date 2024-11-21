@@ -28,9 +28,9 @@ if __name__ =="__main__":
     parser.add_argument('--seq_length', default=128, type=int, help='sequence length')
     parser.add_argument('--embedding_dim', default=4096, type=int, help='embedding dimension in a Transformer layer, 4096 for Llama-2-7b')
     parser.add_argument('--ff_dim', default=4096, type=int, help='dimension in a FeedForward layer')
-    parser.add_argument('--num_iterations', default=2, type=int, help='number of iterations, namely number of batches')
-    parser.add_argument('--num_stages',default=4,type=int,help='number of stages')
-    parser.add_argument('--num_layers',default=24,type=int,help='number of layers')
+    parser.add_argument('--num_iterations', default=1, type=int, help='number of iterations, namely number of batches')
+    parser.add_argument('--num_stages',default=8,type=int,help='number of stages')
+    parser.add_argument('--num_layers',default=32,type=int,help='number of layers')
     parser.add_argument('--num_heads',default=32,type=int,help='number of attention heads in a layer')
     parser.add_argument('--model',default='llama-2-7b',type=str,help='specify the model name')
     parser.add_argument('--dataset',default='xsum',type=str,help='specify the dataset name')
@@ -95,7 +95,8 @@ if __name__ =="__main__":
     for i in range(args.num_iterations):
         pipeline.optimizer.zero_grad()
         pipeline.run_pipeline(action_list)
-        # dist.barrier()
+        dist.barrier()
+        torch.cuda.empty_cache()
         # 目前模型参数都在GPU里面
         pipeline.optimizer.step()
         if global_rank==0:

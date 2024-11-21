@@ -56,7 +56,6 @@ def generate_module1(args):
     input:
     output: module_list:list
     '''
-    # 自己定义的model
     module_list=[]
     layer_number_per_stage=[0]*args.num_stages
     # 这里先持保留态度，看看各个stage的模型要如何划分，暂时先写成平均分的
@@ -80,7 +79,6 @@ def merge_transformer_models(model_list, hidden_dim, nhead, ff_dim, dropout, nor
     Concatenate some self-defined TransformerLM into one model.
     Design this function to fine-tune a complete model in only one device, setting comparison experiment to pipeline/mobius method.
     '''
-    # 创建一个空列表，用于存储所有 TransformerDecoderLayer 层
     merged_layers = []
     
     for model in model_list:
