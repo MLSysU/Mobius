@@ -3,14 +3,15 @@ from torch import nn
 import torch
 
 
-def verify_peak_memory(rank):
+def verify_peak_memory(rank,file):
     '''
     Method to evaluate the effect of mobius offload-reload trick,
     namely to evaluate the peak memory during the whole fine-tuning process.
     '''
     print(
         "cuda {:d}: Peak memory {:.2f} GB ; Persistent memory {:.2f} GB"
-            .format(rank,torch.cuda.memory_stats(rank)["allocated_bytes.all.peak"] / 2**30 , torch.cuda.memory_stats(rank)["allocated_bytes.all.current"] / 2**30)
+            .format(rank,torch.cuda.memory_stats(rank)["allocated_bytes.all.peak"] / 2**30 , torch.cuda.memory_stats(rank)["allocated_bytes.all.current"] / 2**30),
+        file=file
     )
 
 
@@ -31,8 +32,8 @@ def generate_module(args,config,layers_list):
     ''' 
     module_list=[]
     layer_number_per_stage=[0]*args.num_stages
-    # average_layers=config.num_hidden_layers//args.num_stages
     average_layers=config.num_hidden_layers//args.num_stages
+    # average_layers=8//args.num_stages
 
     # Distribute layers to each stage
     start_idx = 0

@@ -38,7 +38,7 @@ def preprocess_xsum(tokenizer,batch_size,model):
     encoded_dataset = dataset.map(encode_batch, batched=True)
     encoded_dataset = encoded_dataset.remove_columns(["document", "summary","id"])
     data_collator = DataCollatorForSeq2Seq(tokenizer=tokenizer, model=model)
-    train_dataloader = DataLoader(encoded_dataset, batch_size=batch_size, shuffle=True, collate_fn=data_collator)
+    train_dataloader = DataLoader(encoded_dataset, batch_size=batch_size, shuffle=False, collate_fn=data_collator)
     train_batches = list(train_dataloader)
 
     return train_batches

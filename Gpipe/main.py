@@ -13,6 +13,8 @@ from transformers import LlamaTokenizer,LlamaForCausalLM
 from huggingface_hub import login
 from datasets import load_dataset
 from torch.utils.data import DataLoader
+import torch.profiler
+
 
 
 def set_seed(seed):
@@ -25,19 +27,22 @@ if __name__ =="__main__":
     parser=argparse.ArgumentParser()
     parser.add_argument('--batch_size',default=64,type=int,help='batch size')
     parser.add_argument('--num_chunks',default=4,type=int,help='M, namely number of micro batches')
-    parser.add_argument('--seq_length', default=128, type=int, help='sequence length')
+    parser.add_argument('--seq_length', default=128, type=int, help='sequence length, should not be changed')
     parser.add_argument('--embedding_dim', default=4096, type=int, help='embedding dimension in a Transformer layer, 4096 for Llama-2-7b')
     parser.add_argument('--ff_dim', default=4096, type=int, help='dimension in a FeedForward layer')
-    parser.add_argument('--num_iterations', default=1, type=int, help='number of iterations, namely number of batches')
+    parser.add_argument('--num_iterations', default=2, type=int, help='number of iterations, namely number of batches')
     parser.add_argument('--num_stages',default=8,type=int,help='number of stages')
     parser.add_argument('--num_layers',default=32,type=int,help='number of layers')
     parser.add_argument('--num_heads',default=32,type=int,help='number of attention heads in a layer')
     parser.add_argument('--model',default='llama-2-7b',type=str,help='specify the model name')
     parser.add_argument('--dataset',default='xsum',type=str,help='specify the dataset name')
+    parser.add_argument('--save_results',default='test_result.txt',type=str,help='file to save the results')
 
     args=parser.parse_args()
 
     set_seed(42)
+
+
 
     # device group setting
     dist.init_process_group(backend='nccl')
@@ -46,6 +51,13 @@ if __name__ =="__main__":
     local_size=torch.cuda.device_count()    # 当前节点上存在几张显卡
     local_rank=int(os.environ["LOCAL_RANK"]) # 进程在当前节点上的序号
     torch.cuda.set_device(local_rank%local_size) # 确保进程在多个GPU上是平分的
+
+    if global_rank==0:
+        with open(args.save_results,'a') as f:
+            print("num_iterations = {}".format(args.num_iterations),file=f)
+            print("batch_size = {}".format(args.batch_size),file=f)
+            print("num_layers = {}".format(args.num_layers),file=f)
+            print("num_stages = {}".format(args.num_stages),file=f)
 
     '''
     Import model through hugging face. Model is on CPU by default. 
@@ -84,74 +96,156 @@ if __name__ =="__main__":
     
     # Generate model shard for every stage.
     module_list=generate_module(args,config,layers_list)
-    # # module_list=generate_module1(args)
+
+    # module_list=generate_module1(args)
     # model_list=copy.deepcopy(module_list)
     pipeline=Pipeline(args,module_list,world_size,global_rank,local_rank,embedding_layer,train_batches,norm_layer,lm_head)
 
     torch.cuda.synchronize()
-    start_time=time.time()
+    
 
+    '''
+    # Warm-Up
+    for _ in range(3): 
+        # 模拟接收数据
+        if global_rank == 0:
+            send=dist.isend(tensor=torch.randn(1,1).to('cuda:0'),dst=1)
+        if global_rank<world_size-1 and global_rank>0:
+            recv_tensor=torch.zeros([1,1],dtype=torch.float32,device=f'cuda:{local_rank}')
+            receive=dist.irecv(tensor=recv_tensor,src=global_rank-1)
+            receive.wait()
+            send=dist.isend(recv_tensor,dst=global_rank+1)
+        if global_rank==world_size-1:
+            recv_tensor=torch.zeros([1,1],dtype=torch.float32,device=f'cuda:{local_rank}')
+            receive=dist.irecv(tensor=recv_tensor,src=global_rank-1)
+            receive.wait()
+        
+    torch.cuda.synchronize()  # 确保所有 CUDA 操作完成
+    '''
+
+
+    # 配置 profiler
+    # with torch.profiler.profile(
+    #     activities=[
+    #         torch.profiler.ProfilerActivity.CPU,
+    #         torch.profiler.ProfilerActivity.CUDA
+    #     ],
+    #     schedule=torch.profiler.schedule(  
+    #         wait=0, 
+    #         warmup=0,  # 接下来的 2 步为 warm-up
+    #         active=1   # 随后 1 步记录 profiling 数据
+    #     ),
+    #     record_shapes=True,       # 记录张量形状
+    #     with_stack=True,          # 记录调用堆栈
+    #     on_trace_ready=torch.profiler.tensorboard_trace_handler('./new_log')  # 保存日志以供 TensorBoard 使用
+    # ) as prof:
+    #     for step in range(5):
+    start_time=time.time()
     # pipeline execution
     for i in range(args.num_iterations):
         pipeline.optimizer.zero_grad()
         pipeline.run_pipeline(action_list)
         dist.barrier()
-        torch.cuda.empty_cache()
-        # 目前模型参数都在GPU里面
+        start_step_time=time.time()
         pipeline.optimizer.step()
+        end_step_time=time.time()
+        torch.cuda.empty_cache()
         if global_rank==0:
-            print(f"--------------- finish training step {i}")
- 
-    torch.cuda.synchronize()
+            with open(args.save_results,'a') as f:
+                print("step time = {}".format(end_step_time-start_step_time),file=f)
+                print(f"--------------- finish training step {i}",file=f)
+                print(i, time.time()-start_time,file=f)
+
+    torch.cuda.synchronize()   
+    torch.cuda.empty_cache() 
     training_time=time.time()-start_time
+    #         pipeline=Pipeline(args,module_list,world_size,global_rank,local_rank,embedding_layer,train_batches,norm_layer,lm_head)
+    #         prof.step() 
 
-    verify_peak_memory(local_rank)
+    # print(prof.key_averages().table(sort_by="cuda_memory_usage", row_limit=10))
+
+    with open(args.save_results,'a') as f:
+        verify_peak_memory(local_rank,f)
     if global_rank==0:
-        print(torch.cuda.memory_summary(device='cuda:0', abbreviated=True))
+        with open(args.save_results,'a') as f:
+            print(torch.cuda.memory_summary(device='cuda:0', abbreviated=True),file=f)
 
     if global_rank==0:
-        print("training time = {}".format(training_time))
-
+        with open(args.save_results,'a') as f:
+            print("training time = {}".format(training_time),file=f)
+    
+    dist.destroy_process_group()
 
     '''
     Two different method to fine-tune a complete model on only one device.
     Comparison experiment to evaulate the pipeline strategy and offload/reload strategy of Mobius, using time and memory occupation as metrics respectively.
     '''
-    # if global_rank==0:
-    #     print(torch.cuda.memory_summary(device='cuda:0', abbreviated=True))    
-    #     another_optimizer=my_optimizer(model_list)
-    #     start_time=time.time()
-    #     # complete model
-    #     another_device=torch.device(f'cuda:{0}')
-    #     embedding_layer.to(device=another_device)
-    #     norm_layer.to(device=another_device)
-    #     lm_head.to(device=another_device)
-    #     for it in range(args.num_iterations):
-    #         another_optimizer.zero_grad()
-    #         for i in range(args.num_chunks):
-    #             input_data=train_batches[it*args.num_chunks+i]['input_ids']
-    #             input_data=input_data.to(another_device)
-    #             input_data=embedding_layer(input_data)
-    #             for m in range(len(model_list)):
-    #                 model_list[m]=copy.deepcopy(model_list[m]).to(another_device)
-    #                 output=model_list[m](input_data)
-    #                 input_data=output
-    #                 input_data.requires_grad_()
-    #             output=norm_layer(output)
-    #             logits=lm_head(output[:, -32:, :])
-    #             logits = logits.view(-1, logits.size(-1))
-    #             correct_result=train_batches[it*args.num_chunks+i]["labels"].to(another_device)
-    #             correct_result=correct_result.view(-1)
-    #             torch.autograd.backward(F.cross_entropy(logits, correct_result))
-    #             # torch.autograd.backward(output.mean())
-    #         another_optimizer.step()
-    #     verify_peak_memory(local_rank)
-    #     print(torch.cuda.memory_summary(device='cuda:0', abbreviated=True))    
-               
-    #     finish_time=time.time()
-    #     training_time=finish_time-start_time
-    #     print("baseline training time = {}".format(training_time))
+    '''
+    if global_rank==0:
+        another_optimizer=my_optimizer(model_list)
+        start_time=time.time()
+        # complete model
+        another_device=torch.device(f'cuda:{0}')
+        embedding_layer.half().to(device=another_device)
+        norm_layer.half().to(device=another_device)
+        lm_head.half().to(device=another_device)
+        for it in range(args.num_iterations):
+            my_models=[]
+            another_optimizer.zero_grad()
+            for i in range(args.num_chunks):
+                input_data=train_batches[it*args.num_chunks+i]['input_ids']
+                input_data=input_data.to(another_device)
+                input_data=embedding_layer(input_data)      
+                for m in range(len(model_list)):
+                    input_data.requires_grad_()
+                    input_data.retain_grad()
+                    if m==1:
+                        first_data=input_data
+                    if len(my_models)>m:
+                        my_model=my_models[m]
+                    else:    
+                        my_model=copy.deepcopy(model_list[m]).half().to(another_device)
+                        my_models.append(my_model)
+                    output=my_model(input_data)
+                    input_data=output
+                    
+                output=norm_layer(output)
+                logits=lm_head(output[:, -32:, :])
+                logits = logits.view(-1, logits.size(-1))
+                correct_result=train_batches[it*args.num_chunks+i]["labels"].to(another_device)
+                correct_result=correct_result.view(-1)
+                torch.autograd.backward(F.cross_entropy(logits, correct_result))
 
+                # if i==0:
+                #     print("1 input grad",it,i,first_data.grad)
+                if i==0:
+                    print("continue model output",it,i,output)
+            for i in range(len(my_models)):
+                for name,param in my_models[i].named_parameters():
+                    if param.grad is not None:
+                        model_param=dict(model_list[i].named_parameters())[name]
+                        double_grad=param.grad.to(dtype=torch.float32,device='cpu')
+                        model_param.grad=torch.empty_like(double_grad,device='cpu').copy_(double_grad)
+            # for name,param in model_list[0].named_parameters():
+            #     if param.grad is not None:
+            #         print("continue model",it,name,param)
+            #         print("continue model grad",it,name,param.grad)
+            start_step_time=time.time()
+            another_optimizer.step()
+            end_step_time=time.time()
+            print("step time = {}".format(end_step_time-start_step_time))
+            # for name, param in model_list[1].named_parameters():
+            #     print("continue",it,name,param)
+
+        verify_peak_memory(local_rank,None)
+        print(torch.cuda.memory_summary(device='cuda:0', abbreviated=True))    
+               
+        finish_time=time.time()
+        training_time=finish_time-start_time
+        print("baseline training time = {}".format(training_time))
+    
+    dist.destroy_process_group()
+    '''
 
     # if global_rank==0:
     #     another_optimizer=my_optimizer(model_list)
