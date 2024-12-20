@@ -175,6 +175,7 @@ class Pipeline():
         input_grad=self.last_recv_tensor.clone()
         # backward compute
         my_activation=self.activation_list[my_stage_id].pop(0)
+        torch.cuda.synchronize(device=self.device)
         self.backward_compute(my_activation,my_stage_id,chunk_id,input_grad) 
         # print("first input grad ",self.input_list[my_stage_id].pop(0).grad.shape,self.input_list[my_stage_id].pop(0).grad)
         end_time=time.time()
@@ -191,6 +192,7 @@ class Pipeline():
         input_grad=self.last_recv_tensor.clone()
         # backward compute
         my_activation=self.activation_list[my_stage_id].pop(0)
+        torch.cuda.synchronize(device=self.device)
         self.backward_compute(my_activation,my_stage_id,chunk_id,input_grad)
         # send input.grad
         target_rank=target_stage_id%self.world_size
@@ -326,23 +328,24 @@ class Pipeline():
                             load(last_module,self.module_list[last_stage_id])
                             self.local_module_list[last_stage_id//self.world_size][1]='gpu'
 
-        with torch.profiler.record_function("model_backward"):
-            if accu_grad is None:
-                output=self.norm_layer(activation)
-                logits=self.lm_head(output[:, -32:, :])
-                logits = logits.view(-1, logits.size(-1))
-                correct_result=self.train_batches[self.iteration*self.num_chunks+chunk_id]["labels"].to(self.device)
-                correct_result=correct_result.view(-1)
-                self.load_event.wait()
-                torch.autograd.backward(F.cross_entropy(logits, correct_result))
-                self.compute_event.record()
-                # torch.autograd.backward(activation.mean)
-                if chunk_id==0:
-                    print("pipe output",output)
-            else:
-                self.load_event.wait()
-                torch.autograd.backward(activation,grad_tensors=accu_grad)
-                self.compute_event.record()
+        with torch.cuda.stream(self.compute_stream):
+            with torch.profiler.record_function("model_backward"):
+                if accu_grad is None:
+                    output=self.norm_layer(activation)
+                    logits=self.lm_head(output[:, -32:, :])
+                    logits = logits.view(-1, logits.size(-1))
+                    correct_result=self.train_batches[self.iteration*self.num_chunks+chunk_id]["labels"].to(self.device)
+                    correct_result=correct_result.view(-1)
+                    self.load_event.wait()
+                    torch.autograd.backward(F.cross_entropy(logits, correct_result))
+                    self.compute_event.record()
+                    # torch.autograd.backward(activation.mean)
+                    if chunk_id==0:
+                        print("pipe output",output)
+                else:
+                    self.load_event.wait()
+                    torch.autograd.backward(activation,grad_tensors=accu_grad)
+                    self.compute_event.record()
 
 
         
@@ -355,6 +358,7 @@ class Pipeline():
                 # offload(self.module,self.module_list[my_stage_id])
                 # self.local_module_list[my_stage_id//self.world_size][1]='cpu'
 
+        self.compute_event.wait()
         return 
 
 
