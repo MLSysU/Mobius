@@ -7,6 +7,7 @@ from Runtime import *
 from utils import *
 import torch.nn.functional as F
 import time
+import threading
 
 def print_grad(grad):
     print("Grad:", grad)
@@ -130,6 +131,7 @@ class Pipeline():
         # compute
         # if my_stage_id==1:
         #     print(f"input data {my_stage_id} {chunk_id} {input_data}")
+        torch.cuda.synchronize(device=self.device)
         result_tensor=self.forward_compute(input_data,my_stage_id,chunk_id)
         self.activation_list[my_stage_id].append(result_tensor)
         # send activation
@@ -150,6 +152,7 @@ class Pipeline():
         input_data.retain_grad()
         self.input_list[my_stage_id].append(input_data)
         # forward compute
+        torch.cuda.synchronize(device=self.device)
         result_tensor=self.forward_compute(input_data,my_stage_id,chunk_id)
         self.activation_list[my_stage_id].append(result_tensor)
         # print("pipeline output ",my_stage_id,self.iteration,self.input_chunk_id,result_tensor)
@@ -216,6 +219,27 @@ class Pipeline():
     '''
     下面写的函数都是stage完整行为中可能用到的片段操作
     '''
+
+    def prefetch_model(self,my_stage_id:int):
+        with torch.cuda.stream(self.load_stream):
+            with torch.profiler.record_function("prefetch model"):                  
+                if my_stage_id+self.world_size<self.num_stages:
+                    next_stage_id=my_stage_id+self.world_size
+                    if len(self.local_module_list)<self.num_stages//self.world_size:
+                        next_module=copy.deepcopy(self.module_list[next_stage_id]).half()
+                        for param in next_module.parameters():
+                            param.data = param.data.pin_memory()  # only pin memory can satisfy the requirement of cudaMemcpyAsync  
+                            param.data = param.data.to(self.device,non_blocking=True)
+                        for buffer_name, buffer in next_module.named_buffers():
+                            buffer.data = buffer.data.pin_memory()
+                            buffer.data = buffer.data.to(self.device, non_blocking=True)
+                        self.local_module_list.append([next_module,'gpu'])
+                    elif self.local_module_list[next_stage_id//self.world_size][1]=='cpu':
+                        next_module=self.local_module_list[next_stage_id//self.world_size][0]
+                        load(next_module,self.module_list[next_stage_id])
+                        self.local_module_list[next_stage_id//self.world_size][1]='gpu'
+        return 
+
     def forward_compute(self,input_tensor:torch.tensor,my_stage_id:int,chunk_id:int):    
         # load module
         if chunk_id==0:
@@ -238,19 +262,7 @@ class Pipeline():
                             self.local_module_list[my_stage_id//self.world_size][1]='gpu'
                     self.load_event.record()
 
-                with torch.profiler.record_function("prefetch model"):
-                    # prefetch model
-                    if my_stage_id+self.world_size<self.num_stages:
-                        next_stage_id=my_stage_id+self.world_size
-                        if len(self.local_module_list)<self.num_stages//self.world_size:
-                            next_module=copy.deepcopy(self.module_list[next_stage_id]).half()
-                            # next_module=copy.deepcopy(self.module_list[next_stage_id])
-                            next_module.to(self.device,non_blocking=True)
-                            self.local_module_list.append([next_module,'gpu'])
-                        elif self.local_module_list[next_stage_id//self.world_size][1]=='cpu':
-                            next_module=self.local_module_list[next_stage_id//self.world_size][0]
-                            load(next_module,self.module_list[next_stage_id])
-                            self.local_module_list[next_stage_id//self.world_size][1]='gpu'
+                
 
         # compute
         with torch.cuda.stream(self.compute_stream):
@@ -264,11 +276,16 @@ class Pipeline():
                     input_tensor.retain_grad()
                     self.input_list[my_stage_id].append(input_tensor)
                 activation=self.module(input_tensor)
-                if chunk_id==self.num_chunks-1:
-                    self.compute_event.record()
-                if my_stage_id==0 or my_stage_id==1:
-                    print(f"activation {my_stage_id} {chunk_id} {activation} ")
-        
+                self.compute_event.record()
+
+        # prefetch model
+        if chunk_id==0:
+            prefetch_thread = threading.Thread(
+                target=self.prefetch_model,
+                args=(my_stage_id,)
+            )
+            prefetch_thread.start()
+            
                 
         # module.register_forward_pre_hook(reload)
 
@@ -281,6 +298,7 @@ class Pipeline():
                     offload(self.module,self.module_list[my_stage_id])
                     self.local_module_list[my_stage_id//self.world_size][1]='cpu'
 
+        self.compute_event.wait()
         return activation
 
 
@@ -386,7 +404,6 @@ class Pipeline():
         # Only stage0 will use this function.
         data=self.src_list[self.input_chunk_id]
         self.input_chunk_id+=1
-        data=data.to(self.device)
         return data
 
     def generate_data(self):
