@@ -37,6 +37,8 @@ if __name__ =="__main__":
     parser.add_argument('--model',default='llama-2-7b',type=str,help='specify the model name')
     parser.add_argument('--dataset',default='xsum',type=str,help='specify the dataset name')
     parser.add_argument('--save_results',default='test_result.txt',type=str,help='file to save the results')
+    parser.add_argument('--use_prefetch', action='store_true', help='Enable prefetch trick')
+    parser.add_argument('--no_prefetch', action='store_false', dest='use_prefetch', help='Disable prefetch trick')
 
     args=parser.parse_args()
 
@@ -58,6 +60,7 @@ if __name__ =="__main__":
             print("batch_size = {}".format(args.batch_size),file=f)
             print("num_layers = {}".format(args.num_layers),file=f)
             print("num_stages = {}".format(args.num_stages),file=f)
+            print("use_prefetch = {}".format(args.use_prefetch),file=f)
 
     '''
     Import model through hugging face. Model is on CPU by default. 
@@ -131,34 +134,36 @@ if __name__ =="__main__":
     #         torch.profiler.ProfilerActivity.CUDA
     #     ],
     #     schedule=torch.profiler.schedule(  
-    #         wait=0, 
-    #         warmup=0,  # 接下来的 2 步为 warm-up
+    #         wait=2, 
+    #         warmup=2,  # 接下来的 2 步为 warm-up
     #         active=1   # 随后 1 步记录 profiling 数据
     #     ),
     #     record_shapes=True,       # 记录张量形状
     #     with_stack=True,          # 记录调用堆栈
-    #     on_trace_ready=torch.profiler.tensorboard_trace_handler('./new_log')  # 保存日志以供 TensorBoard 使用
+    #     on_trace_ready=torch.profiler.tensorboard_trace_handler('./test_log')  # 保存日志以供 TensorBoard 使用
     # ) as prof:
-    #     for step in range(5):
-    start_time=time.time()
-    # pipeline execution
+    #     for step in range(5):   
+            # pipeline execution
+    training_time=0
     for i in range(args.num_iterations):
+        start_time=time.time()
         pipeline.optimizer.zero_grad()
         pipeline.run_pipeline(action_list)
         dist.barrier()
+        pipeline.offload_thread.join()
+        torch.cuda.synchronize()
+        end_time=time.time()
         start_step_time=time.time()
         pipeline.optimizer.step()
         end_step_time=time.time()
-        torch.cuda.empty_cache()
+        # torch.cuda.empty_cache()
         if global_rank==0:
+            training_time+=end_time-start_time
             with open(args.save_results,'a') as f:
                 print("step time = {}".format(end_step_time-start_step_time),file=f)
                 print(f"--------------- finish training step {i}",file=f)
-                print(i, time.time()-start_time,file=f)
-
-    torch.cuda.synchronize()   
-    torch.cuda.empty_cache() 
-    training_time=time.time()-start_time
+                print(i, time.time()-start_time,file=f) 
+            # torch.cuda.empty_cache()
     #         pipeline=Pipeline(args,module_list,world_size,global_rank,local_rank,embedding_layer,train_batches,norm_layer,lm_head)
     #         prof.step() 
 
@@ -174,11 +179,12 @@ if __name__ =="__main__":
         with open(args.save_results,'a') as f:
             print("training time = {}".format(training_time),file=f)
     
-    # dist.destroy_process_group()
+    dist.destroy_process_group()
 
     '''
     Two different method to fine-tune a complete model on only one device.
     Comparison experiment to evaulate the pipeline strategy and offload/reload strategy of Mobius, using time and memory occupation as metrics respectively.
+    '''
     '''
     if global_rank==0:
         another_optimizer=my_optimizer(model_list)
@@ -244,6 +250,7 @@ if __name__ =="__main__":
         print("baseline training time = {}".format(training_time))
     
     dist.destroy_process_group()
+    '''
 
     # if global_rank==0:
     #     another_optimizer=my_optimizer(model_list)
