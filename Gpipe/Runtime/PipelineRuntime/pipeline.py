@@ -15,7 +15,7 @@ def print_grad(grad):
 
 
 class Pipeline():
-    def __init__(self,args,module_list:list,world_size:int,global_rank:int,local_rank:int,embedding_layer,train_batches,norm_layer,lm_head):
+    def __init__(self,args,module_list:list,world_size:int,global_rank:int,local_rank:int,embedding_layer,train_batches,norm_layer,lm_head,PrefetchThreadManager,OffloadThreadManager):
         self.module_list=module_list
         self.src_list=[] # inputs fetched by stage0
         self.activation_list=[[] for _ in range(args.num_stages)] # 一个gpu可能负责多个stage,每个stage又有很多micro_batch的activation,所以写成长度为num_stages的数组
@@ -65,6 +65,8 @@ class Pipeline():
         self.use_prefetch=args.use_prefetch
         self.offload_done = threading.Event()
         self.prefetch_done = threading.Event()
+        self.PrefetchThreadManager=PrefetchThreadManager
+        self.OffloadThreadManager=OffloadThreadManager
         
 
     def construct_optimizer(self):
@@ -245,7 +247,7 @@ class Pipeline():
                         next_module=self.local_module_list[next_stage_id//self.world_size][0]
                         load(next_module,self.module_list[next_stage_id],self.load_stream)
                         self.local_module_list[next_stage_id//self.world_size][1]='gpu'
-        # self.load_stream.synchronize()
+        self.load_stream.synchronize()
         # self.prefetch_done.set()
         return 
 
@@ -257,9 +259,10 @@ class Pipeline():
                     # if myself has been prefetched
                     # if len(self.local_module_list)>my_stage_id//self.world_size and self.local_module_list[my_stage_id//self.world_size][1]=='gpu':
                     if my_stage_id-self.world_size>=0 and self.use_prefetch:
-                        if self.prefetch_thread is not None:
-                            self.prefetch_thread.join()
-                            self.prefetch_thread=None
+                        # if self.prefetch_thread is not None:
+                        #     self.prefetch_thread.join()
+                        #     self.prefetch_thread=None
+                        self.PrefetchThreadManager.wait_for_task_completion()
                         self.module=self.local_module_list[my_stage_id//self.world_size][0]
                     else:
                         # The first iteration, we need to load the model from the global model list
@@ -294,11 +297,12 @@ class Pipeline():
         # prefetch model
         if self.use_prefetch:
             if chunk_id==0:
-                self.prefetch_thread = threading.Thread(
-                    target=self.prefetch_model,
-                    args=(my_stage_id,)
-                )
-                self.prefetch_thread.start()
+                # self.prefetch_thread = threading.Thread(
+                #     target=self.prefetch_model,
+                #     args=(my_stage_id,)
+                # )
+                # self.prefetch_thread.start()
+                self.PrefetchThreadManager.submit_task(self.prefetch_model,my_stage_id)
             
                 
         # module.register_forward_pre_hook(reload)
@@ -309,14 +313,15 @@ class Pipeline():
             if chunk_id==self.num_chunks-1:
                 if my_stage_id+self.world_size<self.num_stages:
                     self.compute_event.wait()
-                    if self.offload_thread is not None:
-                        self.offload_thread.join()
-                        self.offload_thread=None
-                    self.offload_thread = threading.Thread(
-                        target=offload,
-                        args=(self.module,self.module_list[my_stage_id],self.offload_stream,)
-                    )
-                    self.offload_thread.start()
+                    # if self.offload_thread is not None:
+                    #     self.offload_thread.join()
+                    #     self.offload_thread=None
+                    # self.offload_thread = threading.Thread(
+                    #     target=offload,
+                    #     args=(self.module,self.module_list[my_stage_id],self.offload_stream,)
+                    # )
+                    # self.offload_thread.start()
+                    self.OffloadThreadManager.submit_task(offload,self.module,self.module_list[my_stage_id],self.offload_stream)
                     # offload(self.module,self.module_list[my_stage_id],self.offload_stream)
                     self.local_module_list[my_stage_id//self.world_size][1]='cpu'
 
@@ -332,12 +337,14 @@ class Pipeline():
         if chunk_id==0:
             # load_model
             self.module=self.local_module_list[my_stage_id//self.world_size][0]
+            self.OffloadThreadManager.wait_for_task_completion()
             if self.local_module_list[my_stage_id//self.world_size][1]=='cpu': 
                 load(self.module,self.module_list[my_stage_id],self.load_stream)
                 self.local_module_list[my_stage_id//self.world_size][1]='gpu'
-            if self.prefetch_thread is not None:
-                self.prefetch_thread.join()
-                self.prefetch_thread=None
+            # if self.prefetch_thread is not None:
+            #     self.prefetch_thread.join()
+            #     self.prefetch_thread=None
+            self.PrefetchThreadManager.wait_for_task_completion()
             self.load_event.record()
 
             # prefetch model
@@ -346,11 +353,13 @@ class Pipeline():
                     last_stage_id=my_stage_id-self.world_size
                     last_module=self.local_module_list[last_stage_id//self.world_size][0]
                     if self.local_module_list[last_stage_id//self.world_size][1]=='cpu':
-                        self.prefetch_thread = threading.Thread(
-                            target=load,
-                            args=(last_module,self.module_list[last_stage_id],self.load_stream,)
-                        )
-                        self.prefetch_thread.start()
+                        # self.prefetch_thread = threading.Thread(
+                        #     target=load,
+                        #     args=(last_module,self.module_list[last_stage_id],self.load_stream,)
+                        # )
+                        # self.prefetch_thread.start()
+                        self.OffloadThreadManager.wait_for_task_completion()
+                        self.PrefetchThreadManager.submit_task(load,last_module,self.module_list[last_stage_id],self.load_stream)
                         # load(last_module,self.module_list[last_stage_id])
                         self.local_module_list[last_stage_id//self.world_size][1]='gpu'
 
@@ -379,14 +388,15 @@ class Pipeline():
         with torch.cuda.stream(self.offload_stream):
             if chunk_id==self.num_chunks-1:
                 self.compute_event.wait()
-                if self.offload_thread is not None:
-                    self.offload_done.wait()
-                self.offload_thread = threading.Thread(
-                        target=offload,
-                        args=(self.module,self.module_list[my_stage_id],self.offload_stream,)
-                )
-                self.offload_thread.start()
+                # if self.offload_thread is not None:
+                #     self.offload_done.wait()
+                # self.offload_thread = threading.Thread(
+                #         target=offload,
+                #         args=(self.module,self.module_list[my_stage_id],self.offload_stream,)
+                # )
+                # self.offload_thread.start()
                 # offload(self.module,self.module_list[my_stage_id],self.offload_stream)
+                self.OffloadThreadManager.submit_task(offload,self.module,self.module_list[my_stage_id],self.offload_stream)
                 self.local_module_list[my_stage_id//self.world_size][1]='cpu'
 
         self.compute_event.wait()

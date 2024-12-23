@@ -42,7 +42,7 @@ class SwapFunction(torch.autograd.Function):
         grad_input = grad_output * 2
         return grad_input
 
-def offload(model,cpu_model,offload_stream,event):
+def offload(model,cpu_model,offload_stream):
     # model offload, clear the memory storage occupied by model params in GPU.
     with torch.cuda.stream(offload_stream):
         with torch.profiler.record_function("offload model"):
@@ -58,8 +58,7 @@ def offload(model,cpu_model,offload_stream,event):
                             cpu_model_param.grad = torch.empty_like(param.grad, device='cpu', dtype=torch.float32).copy_(param.grad)
                             # #param.grad.untyped_storage().resize_(0)
                             param.grad=None
-    torch.cuda.synchronize()
-    event.record()
+    offload_stream.synchronize()
     # torch.cuda.empty_cache()
     return 
 
