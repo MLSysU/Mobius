@@ -36,6 +36,7 @@ class ThreadManager:
         """
         等待当前任务执行完成。
         """
+        time.sleep(0.1)
         # 如果锁被占用，说明有任务在执行
         while self.task_lock.locked():
             time.sleep(0.1)  # 主线程稍作休眠，避免高 CPU 占用
