@@ -43,7 +43,7 @@ class Pipeline():
         self.norm_layer=norm_layer.to(self.device)
         self.lm_head=lm_head.to(self.device)
         self.state_dict = [{} for _ in range(self.num_stages)] 
-        self.module=copy.deepcopy(self.module_list[self.my_rank])
+        # self.module=copy.deepcopy(self.module_list[self.my_rank])
 
     def construct_optimizer(self):
         parameters=[]
@@ -51,7 +51,7 @@ class Pipeline():
             module_parameter=list(module.parameters())  # parameters()是nn.Module自带的函数，返回一个生成器，可以迭代调用出模型每一层的参数大小
             parameters+=module_parameter
             self.total_parameters+=sum(p.numel() for p in module_parameter)
-
+        print("Total parameters: ",self.total_parameters)
         return torch.optim.Adam(parameters,lr=0.0001,weight_decay=1e-3)
 
 
@@ -199,6 +199,7 @@ class Pipeline():
     def forward_compute(self,input_tensor:torch.tensor,my_stage_id:int,chunk_id:int): 
         # load module
         if chunk_id==0:
+            self.module=self.module_list[my_stage_id]
             self.module.to(self.device)
         # module.register_forward_pre_hook(reload)
         # compute
@@ -293,7 +294,6 @@ class Pipeline():
         # Only stage0 will use this function.
         data=self.src_list[self.input_chunk_id]
         self.input_chunk_id+=1
-        data=data.to(self.device)
         # print("data of pipeline ",data)
         return data
 

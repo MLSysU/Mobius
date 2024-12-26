@@ -1,71 +1,43 @@
-from transformers import AutoTokenizer, LlamaForCausalLM, DataCollatorForSeq2Seq
-from datasets import load_dataset
-from torch.utils.data import DataLoader
+import torch
+import torch.nn as nn
+import torch.optim as optim
 
+# 创建一个简单的模型
+class SimpleModel(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.linear = nn.Linear(10, 1)
 
-# 从缓存加载模型，默认放在CPU上
-model_path='/data/home/liuhuimin/.cache/huggingface/hub/models--meta-llama--Llama-2-7b-hf/snapshots/first_cache'
-model=LlamaForCausalLM.from_pretrained(model_path)
-config=model.config
-tokenizer=AutoTokenizer.from_pretrained(model_path)
-embedding_layer=model.model.embed_tokens
-layers_list=list(model.model.layers)
+    def forward(self, x):
+        return self.linear(x)
 
-if tokenizer.pad_token is None:
-    tokenizer.pad_token=tokenizer.eos_token
+model = SimpleModel()  # 模型在默认的 CPU 上
+optimizer = optim.Adam(model.parameters(), lr=0.01)  # 创建优化器
 
-def encode_batch(batch):
-    # 确保输入的 document 和 summary 字段有效
-    documents = batch['document']
-    summaries = batch['summary']
-    
-    # 检查并移除任何空字符串或非字符串内容
-    documents = [doc if isinstance(doc, str) and len(doc) > 0 else " " for doc in documents]
-    summaries = [summary if isinstance(summary, str) and len(summary) > 0 else " " for summary in summaries]
+# 查看优化器的初始状态
+print("Before optimization:")
+print(optimizer.state_dict())  # 此时 state 为空，因为还未调用 optimizer.step()
 
-    # 对输入文档进行编码
-    inputs = tokenizer(
-        documents,
-        truncation=True,
-        padding="max_length",
-        max_length=512,  # 根据模型最大长度设置
-        return_tensors="pt"
-    )
+# 模拟前向传播和反向传播
+model.to('cuda:0')  # 将模型迁移到 GPU
+input = torch.randn(3, 10).to('cuda:0')
+target = torch.randn(3, 1).to('cuda:0')
+criterion = nn.MSELoss()
 
-    # 对目标摘要进行编码
-    targets = tokenizer(
-        summaries,
-        truncation=True,
-        padding="max_length",
-        max_length=128,  # 摘要的最大长度设置
-        return_tensors="pt"
-    )
+# 前向传播
+output = model(input)
+loss = criterion(output, target)
 
-    # 将编码后的输入和目标整合为一个字典
-    inputs["labels"] = targets["input_ids"]
-    return inputs
+# 反向传播并优化
+loss.backward()
+optimizer.step()  # 更新参数
 
-dataset = load_dataset("xsum", split="train", trust_remote_code=True)
-encoded_dataset = dataset.map(encode_batch, batched=True)
-encoded_dataset = encoded_dataset.remove_columns(["document", "summary","id"])
-sample=encoded_dataset[0]
-print(sample)
-print("\nShapes:")
-print("Input IDs shape:", len(sample["input_ids"]))
-print("Attention Mask shape:", len(sample["attention_mask"]))
-print("Labels shape:", len(sample["labels"]))
-data_collator = DataCollatorForSeq2Seq(tokenizer=tokenizer, model=model)
-batch_size = 4
-train_dataloader = DataLoader(encoded_dataset, batch_size=batch_size, shuffle=True, collate_fn=data_collator)
-train_batches = list(train_dataloader)
+# 查看更新后的优化器状态
+print("\nAfter optimization:")
+print(optimizer.state_dict())
 
-# 训练示例
-for batch in train_dataloader:
-    input_ids = batch["input_ids"]
-    attention_mask = batch["attention_mask"]
-    labels = batch["labels"]
-
-    # 将 batch 数据转移到设备上（例如 GPU）
-    # outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
-    # loss = outputs.loss
-    # print(f"Loss: {loss.item()}")
+# 检查优化器状态的位置
+for param in optimizer.state:
+    print(f"Parameter device: {param.device}")
+    for state_key, state_value in optimizer.state[param].items():
+        print(f"  State '{state_key}' device: {state_value.device}")

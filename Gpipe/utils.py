@@ -31,8 +31,8 @@ def generate_module(args,config,layers_list):
     ''' 
     module_list=[]
     layer_number_per_stage=[0]*args.num_stages
-    # average_layers=config.num_hidden_layers//args.num_stages
     average_layers=config.num_hidden_layers//args.num_stages
+    # average_layers=8//args.num_stages
 
     # Distribute layers to each stage
     start_idx = 0

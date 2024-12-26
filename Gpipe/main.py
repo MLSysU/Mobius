@@ -89,27 +89,32 @@ if __name__ =="__main__":
     pipeline=Pipeline(args,module_list,world_size,global_rank,local_rank,embedding_layer,train_batches,norm_layer,lm_head)
 
     torch.cuda.synchronize()
-    start_time=time.time()
 
     # pipeline execution
+    training_time=0
     for i in range(args.num_iterations):
+        start_time=time.time()
         pipeline.optimizer.zero_grad()
         pipeline.run_pipeline(action_list)
-        # dist.barrier()
+        dist.barrier()
+        torch.cuda.synchronize()
+        end_time=time.time()  
+        training_time+=end_time-start_time
+        torch.cuda.empty_cache()
         # 目前模型参数都在GPU里面
         pipeline.optimizer.step()
         if global_rank==0:
             print(f"--------------- finish training step {i}")
+            print(training_time)
+
  
     torch.cuda.synchronize()
-    training_time=time.time()-start_time
-
-    verify_peak_memory(local_rank)
-    if global_rank==0:
-        print(torch.cuda.memory_summary(device='cuda:0', abbreviated=True))
+    with open('result.txt','a') as f:
+        verify_peak_memory(local_rank)
 
     if global_rank==0:
-        print("training time = {}".format(training_time))
+        with open('result.txt','a') as f:
+            f.write(str(training_time)+'\n')
 
 
     '''
