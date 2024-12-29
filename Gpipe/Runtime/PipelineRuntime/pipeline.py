@@ -227,9 +227,7 @@ class Pipeline():
         return 
 
     def forward_compute(self,input_tensor:torch.tensor,my_stage_id:int,chunk_id:int): 
-    def forward_compute(self,input_tensor:torch.tensor,my_stage_id:int,chunk_id:int): 
-        # load module
-        if chunk_id==0:    
+        # load module  
         if chunk_id==0:    
             with torch.cuda.stream(self.load_stream):
                 with torch.profiler.record_function("load model"):
@@ -251,8 +249,6 @@ class Pipeline():
                             self.local_module_list[my_stage_id//self.world_size][1]='gpu'          
                 self.load_event.record()
                 
-                
-
         # compute
         with torch.cuda.stream(self.compute_stream):
             with torch.profiler.record_function("model_forward"):
