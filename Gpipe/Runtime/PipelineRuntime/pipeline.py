@@ -261,7 +261,6 @@ class Pipeline():
                     input_tensor.retain_grad()
                     self.input_list[my_stage_id].append(input_tensor)
                 self.PrefetchThreadManager.wait_for_task_completion() # 小心之举，确保prefetch结束
-                self.PrefetchThreadManager.wait_for_task_completion() # 小心之举，确保prefetch结束
                 activation=self.module(input_tensor)
                 self.compute_event.record()
 
