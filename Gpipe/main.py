@@ -41,6 +41,8 @@ if __name__ =="__main__":
     parser.add_argument('--no_prefetch', action='store_false', dest='use_prefetch', help='Disable prefetch trick')
     parser.add_argument('--use_offload', action='store_true',help='use model offload strategy')
     parser.add_argument('--no_offload',action='store_false',dest='use_offload',help='Disable model offload strategy')
+    parser.add_argument('--use_offload', action='store_true',help='use model offload strategy')
+    parser.add_argument('--no_offload',action='store_false',dest='use_offload',help='Disable model offload strategy')
 
     args=parser.parse_args()
 
@@ -63,6 +65,7 @@ if __name__ =="__main__":
             print("num_layers = {}".format(args.num_layers),file=f)
             print("num_stages = {}".format(args.num_stages),file=f)
             print("use_prefetch = {}".format(args.use_prefetch),file=f)
+            print("use_offload = {}".format(args.use_offload),file=f)
             print("use_offload = {}".format(args.use_offload),file=f)
 
     '''
@@ -104,7 +107,7 @@ if __name__ =="__main__":
     module_list=generate_module(args,config,layers_list)
 
     # module_list=generate_module1(args)
-    model_list=copy.deepcopy(module_list)
+    # model_list=copy.deepcopy(module_list)
 
     # sustain a prefetch thread and a offload thread for every GPU.
     PrefetchThreadManager=ThreadManager()
@@ -112,6 +115,7 @@ if __name__ =="__main__":
     pipeline=Pipeline(args,module_list,world_size,global_rank,local_rank,embedding_layer,train_batches,norm_layer,lm_head,PrefetchThreadManager,OffloadThreadManager)
 
     torch.cuda.synchronize()
+    
     
 
     # 配置 profiler
@@ -123,12 +127,15 @@ if __name__ =="__main__":
     #     schedule=torch.profiler.schedule(  
     #         wait=2, 
     #         warmup=3,  # 接下来的 2 步为 warm-up
+    #         warmup=3,  # 接下来的 2 步为 warm-up
     #         active=1   # 随后 1 步记录 profiling 数据
     #     ),
     #     record_shapes=True,       # 记录张量形状
     #     with_stack=True,          # 记录调用堆栈
     #     on_trace_ready=torch.profiler.tensorboard_trace_handler('./test_log')  # 保存日志以供 TensorBoard 使用
     # ) as prof:
+    #     for step in range(6):   
+    # pipeline execution
     #     for step in range(6):   
     # pipeline execution
     training_time=0
@@ -157,6 +164,12 @@ if __name__ =="__main__":
     #         PrefetchThreadManager=ThreadManager()
     #         OffloadThreadManager=ThreadManager()
     #         pipeline=Pipeline(args,module_list,world_size,global_rank,local_rank,embedding_layer,train_batches,norm_layer,lm_head,PrefetchThreadManager,OffloadThreadManager) 
+    # torch.cuda.empty_cache()
+    pipeline.PrefetchThreadManager.shutdown()
+    pipeline.OffloadThreadManager.shutdown()
+    #         PrefetchThreadManager=ThreadManager()
+    #         OffloadThreadManager=ThreadManager()
+    #         pipeline=Pipeline(args,module_list,world_size,global_rank,local_rank,embedding_layer,train_batches,norm_layer,lm_head,PrefetchThreadManager,OffloadThreadManager) 
     #         prof.step() 
 
     # print(prof.key_averages().table(sort_by="cuda_memory_usage", row_limit=10))
@@ -176,6 +189,7 @@ if __name__ =="__main__":
 
     Two different method to fine-tune a complete model on only one device.
     Comparison experiment to evaulate the pipeline strategy and offload/reload strategy of Mobius, using time and memory occupation as metrics respectively.
+    '''
     '''
     if global_rank==0:
         another_optimizer=my_optimizer(model_list)
@@ -215,6 +229,8 @@ if __name__ =="__main__":
                 if i==0:
                     print("continue input grad",it,i,first_data.grad)
                 if i==0:
+                    print("continue input grad",it,i,first_data.grad)
+                if i==0:
                     print("continue model output",it,i,output)
             for i in range(len(my_models)):
                 for name,param in my_models[i].named_parameters():
@@ -241,6 +257,7 @@ if __name__ =="__main__":
         print("baseline training time = {}".format(training_time))
     
     dist.destroy_process_group()
+    '''
 
     # if global_rank==0:
     #     another_optimizer=my_optimizer(model_list)

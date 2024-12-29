@@ -48,6 +48,7 @@ class Pipeline():
         self.norm_layer=norm_layer.half().to(self.device)
         self.lm_head=lm_head.half().to(self.device)
         # self.embedding_layer=embedding_layer.to(self.device)
+        # self.embedding_layer=embedding_layer.to(self.device)
         # self.norm_layer=norm_layer.to(self.device)
         # self.lm_head=lm_head.to(self.device)
         self.state_dict = [{} for _ in range(self.num_stages)] 
@@ -67,6 +68,7 @@ class Pipeline():
         self.prefetch_done = threading.Event()
         self.PrefetchThreadManager=PrefetchThreadManager
         self.OffloadThreadManager=OffloadThreadManager
+        
         
     def construct_optimizer(self):
         parameters=[]
@@ -225,7 +227,9 @@ class Pipeline():
         return 
 
     def forward_compute(self,input_tensor:torch.tensor,my_stage_id:int,chunk_id:int): 
+    def forward_compute(self,input_tensor:torch.tensor,my_stage_id:int,chunk_id:int): 
         # load module
+        if chunk_id==0:    
         if chunk_id==0:    
             with torch.cuda.stream(self.load_stream):
                 with torch.profiler.record_function("load model"):
@@ -260,6 +264,7 @@ class Pipeline():
                     input_tensor.requires_grad_(True)
                     input_tensor.retain_grad()
                     self.input_list[my_stage_id].append(input_tensor)
+                self.PrefetchThreadManager.wait_for_task_completion() # 小心之举，确保prefetch结束
                 self.PrefetchThreadManager.wait_for_task_completion() # 小心之举，确保prefetch结束
                 activation=self.module(input_tensor)
                 self.compute_event.record()
@@ -334,6 +339,7 @@ class Pipeline():
 
         self.compute_event.wait()
         return 
+    
     
 
 
