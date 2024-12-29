@@ -39,6 +39,8 @@ if __name__ =="__main__":
     parser.add_argument('--save_results',default='test_result.txt',type=str,help='file to save the results')
     parser.add_argument('--use_prefetch', action='store_true', help='Enable prefetch trick')
     parser.add_argument('--no_prefetch', action='store_false', dest='use_prefetch', help='Disable prefetch trick')
+    parser.add_argument('--use_offload', action='store_true',help='use model offload strategy')
+    parser.add_argument('--no_offload',action='store_false',dest='use_offload',help='Disable model offload strategy')
 
     args=parser.parse_args()
 
@@ -61,6 +63,7 @@ if __name__ =="__main__":
             print("num_layers = {}".format(args.num_layers),file=f)
             print("num_stages = {}".format(args.num_stages),file=f)
             print("use_prefetch = {}".format(args.use_prefetch),file=f)
+            print("use_offload = {}".format(args.use_offload),file=f)
 
     '''
     Import model through hugging face. Model is on CPU by default. 
@@ -111,26 +114,6 @@ if __name__ =="__main__":
     torch.cuda.synchronize()
     
 
-    '''
-    # Warm-Up
-    for _ in range(3): 
-        # 模拟接收数据
-        if global_rank == 0:
-            send=dist.isend(tensor=torch.randn(1,1).to('cuda:0'),dst=1)
-        if global_rank<world_size-1 and global_rank>0:
-            recv_tensor=torch.zeros([1,1],dtype=torch.float32,device=f'cuda:{local_rank}')
-            receive=dist.irecv(tensor=recv_tensor,src=global_rank-1)
-            receive.wait()
-            send=dist.isend(recv_tensor,dst=global_rank+1)
-        if global_rank==world_size-1:
-            recv_tensor=torch.zeros([1,1],dtype=torch.float32,device=f'cuda:{local_rank}')
-            receive=dist.irecv(tensor=recv_tensor,src=global_rank-1)
-            receive.wait()
-        
-    torch.cuda.synchronize()  # 确保所有 CUDA 操作完成
-    '''
-
-
     # 配置 profiler
     # with torch.profiler.profile(
     #     activities=[
@@ -139,15 +122,15 @@ if __name__ =="__main__":
     #     ],
     #     schedule=torch.profiler.schedule(  
     #         wait=2, 
-    #         warmup=2,  # 接下来的 2 步为 warm-up
+    #         warmup=3,  # 接下来的 2 步为 warm-up
     #         active=1   # 随后 1 步记录 profiling 数据
     #     ),
     #     record_shapes=True,       # 记录张量形状
     #     with_stack=True,          # 记录调用堆栈
     #     on_trace_ready=torch.profiler.tensorboard_trace_handler('./test_log')  # 保存日志以供 TensorBoard 使用
     # ) as prof:
-    #     for step in range(5):   
-            # pipeline execution
+    #     for step in range(6):   
+    # pipeline execution
     training_time=0
     for i in range(args.num_iterations):
         start_time=time.time()
@@ -168,8 +151,12 @@ if __name__ =="__main__":
                 print("step time = {}".format(end_step_time-start_step_time),file=f)
                 print(f"--------------- finish training step {i}",file=f)
                 print(i, time.time()-start_time,file=f) 
-            # torch.cuda.empty_cache()
-    #         pipeline=Pipeline(args,module_list,world_size,global_rank,local_rank,embedding_layer,train_batches,norm_layer,lm_head)
+    # torch.cuda.empty_cache()
+    pipeline.PrefetchThreadManager.shutdown()
+    pipeline.OffloadThreadManager.shutdown()
+    #         PrefetchThreadManager=ThreadManager()
+    #         OffloadThreadManager=ThreadManager()
+    #         pipeline=Pipeline(args,module_list,world_size,global_rank,local_rank,embedding_layer,train_batches,norm_layer,lm_head,PrefetchThreadManager,OffloadThreadManager) 
     #         prof.step() 
 
     # print(prof.key_averages().table(sort_by="cuda_memory_usage", row_limit=10))
@@ -185,8 +172,8 @@ if __name__ =="__main__":
             print("training time = {}".format(training_time),file=f)
     
     # dist.destroy_process_group()
-
     '''
+
     Two different method to fine-tune a complete model on only one device.
     Comparison experiment to evaulate the pipeline strategy and offload/reload strategy of Mobius, using time and memory occupation as metrics respectively.
     '''
@@ -225,8 +212,8 @@ if __name__ =="__main__":
                 correct_result=correct_result.view(-1)
                 torch.autograd.backward(F.cross_entropy(logits, correct_result))
 
-                # if i==0:
-                #     print("1 input grad",it,i,first_data.grad)
+                if i==0:
+                    print("continue input grad",it,i,first_data.grad)
                 if i==0:
                     print("continue model output",it,i,output)
             for i in range(len(my_models)):

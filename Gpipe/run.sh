@@ -2,10 +2,11 @@ import time
 import subprocess
 
 commands = [
-    # "CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun  --nproc_per_node 4 --master_port 29502 ./main.py --num_iterations=20 --batch_size=64 --num_stage=16 --use_prefetch",
-    # "CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun  --nproc_per_node 4 --master_port 29502 ./main.py --num_iterations=20 --batch_size=64 --num_stage=16 --no_prefetch",
-    "CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun  --nproc_per_node 4 --master_port 29502 ./main.py --num_iterations=20 --batch_size=64 --num_stage=8 --use_prefetch",
+    # "CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun  --nproc_per_node 4 --master_port 29502 ./main.py --num_iterations=20 --batch_size=64 --num_stage=8 --use_prefetch",
     "CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun  --nproc_per_node 4 --master_port 29502 ./main.py --num_iterations=20 --batch_size=64 --num_stage=8 --no_prefetch",
+    "CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun  --nproc_per_node 4 --master_port 29502 ./main.py --num_iterations=20 --batch_size=64 --num_stage=16 --use_prefetch",
+    "CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun  --nproc_per_node 4 --master_port 29502 ./main.py --num_iterations=20 --batch_size=64 --num_stage=16 --no_prefetch",
+    # "CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun  --nproc_per_node 4 --master_port 29502 ./main.py --num_iterations=20 --batch_size=64 --num_stage=8 --use_prefetch",  
     # "CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun  --nproc_per_node 4 ./main.py --num_iterations=30 --batch_size=128 --num_stage=16",
     # "CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun  --nproc_per_node 4 ./main.py --num_iterations=50 --batch_size=128 --num_stage=16",
 ]

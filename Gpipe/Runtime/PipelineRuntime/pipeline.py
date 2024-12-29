@@ -47,7 +47,7 @@ class Pipeline():
         self.embedding_layer=embedding_layer.half().to(self.device)
         self.norm_layer=norm_layer.half().to(self.device)
         self.lm_head=lm_head.half().to(self.device)
-        # self.embedding_layer=embedding_layer
+        # self.embedding_layer=embedding_layer.to(self.device)
         # self.norm_layer=norm_layer.to(self.device)
         # self.lm_head=lm_head.to(self.device)
         self.state_dict = [{} for _ in range(self.num_stages)] 
@@ -68,7 +68,6 @@ class Pipeline():
         self.PrefetchThreadManager=PrefetchThreadManager
         self.OffloadThreadManager=OffloadThreadManager
         
-
     def construct_optimizer(self):
         parameters=[]
         for module in self.local_module_list:
@@ -76,9 +75,6 @@ class Pipeline():
             parameters+=module_parameter
             self.total_parameters+=sum(p.numel() for p in module_parameter)
         return torch.optim.Adam(parameters,lr=0.0001,weight_decay=1e-3)
-        
-
-
 
     def parse_action(self,action:str) ->tuple:
         """
@@ -110,7 +106,6 @@ class Pipeline():
     # 3.最后一个stage需要从上个stage那里拿到计算结果，前向计算
 
     def forward_first(self,my_stage_id:int,target_stage_id:int,chunk_id:int):    
-        start_time=time.time() 
         # get data
         input_data=self.get_data()
         # compute
@@ -119,13 +114,9 @@ class Pipeline():
         # send activation
         target_rank=target_stage_id%self.world_size
         self.send_activation(target_rank,result_tensor)
-        # make_dot(result_tensor, params={"input_data": input_data}).render("graph", format="png")
-        end_time=time.time()
-        # print(f"forward time:{my_stage_id} {end_time-start_time}")
         return 
 
     def forward_middle(self,source_stage_id:int,my_stage_id:int,target_stage_id:int,chunk_id:int):
-        start_time=time.time()
         # receive data
         source_rank=source_stage_id%self.world_size
         self.receive_activation(source_rank)
@@ -136,19 +127,15 @@ class Pipeline():
         input_data.retain_grad()
         self.input_list[my_stage_id].append(input_data)
         # compute
-        # if my_stage_id==1:
-        #     print(f"input data {my_stage_id} {chunk_id} {input_data}")
         torch.cuda.synchronize(device=self.device)
         result_tensor=self.forward_compute(input_data,my_stage_id,chunk_id)
         self.activation_list[my_stage_id].append(result_tensor)
         # send activation
         target_rank=target_stage_id%self.world_size
         self.send_activation(target_rank,result_tensor)
-        end_time=time.time()
         return
     
     def forward_last(self,source_stage_id:int,my_stage_id:int,chunk_id:int):
-        start_time=time.time()
         # receive data
         source_rank=source_stage_id%self.world_size
         self.receive_activation(source_rank)
@@ -162,9 +149,6 @@ class Pipeline():
         torch.cuda.synchronize(device=self.device)
         result_tensor=self.forward_compute(input_data,my_stage_id,chunk_id)
         self.activation_list[my_stage_id].append(result_tensor)
-        # print("pipeline output ",my_stage_id,self.iteration,self.input_chunk_id,result_tensor)
-        end_time=time.time()
-        # print(f"forward time:{my_stage_id} {end_time-start_time}")
         return 
 
 
@@ -173,7 +157,6 @@ class Pipeline():
     # 最后一个stage利用自己的activation计算LOSS，再计算自己的grad,将自己的输入的grad发送给前一个stage
 
     def backward_first(self,my_stage_id:int,source_stage_id:int,chunk_id:int):
-        start_time=time.time()
         # receive data
         source_rank=source_stage_id%self.world_size
         self.receive_grad(source_rank)
@@ -184,13 +167,9 @@ class Pipeline():
         my_activation=self.activation_list[my_stage_id].pop(0)
         torch.cuda.synchronize(device=self.device)
         self.backward_compute(my_activation,my_stage_id,chunk_id,input_grad) 
-        # print("first input grad ",self.input_list[my_stage_id].pop(0).grad.shape,self.input_list[my_stage_id].pop(0).grad)
-        end_time=time.time()
-        # print(f"backward time:{my_stage_id} {end_time-start_time}")
         return
 
     def backward_middle(self,source_stage_id:int,my_stage_id:int,target_stage_id:int,chunk_id:int):
-        start_time=time.time()
         # receive data
         source_rank=source_stage_id%self.world_size
         self.receive_grad(source_rank)
@@ -204,12 +183,9 @@ class Pipeline():
         # send input.grad
         target_rank=target_stage_id%self.world_size
         self.send_grad(self.input_list[my_stage_id].pop(0).grad,target_rank)
-        end_time=time.time()
-        # print(f"backward time:{my_stage_id} {end_time-start_time}")
         return 
 
     def backward_last(self,my_stage_id:int,target_stage_id:int,chunk_id:int):
-        start_time=time.time()
         if chunk_id==0:
             self.iteration+=1
         # compute the gradient of input
@@ -218,9 +194,6 @@ class Pipeline():
         # send input.grad
         target_rank=target_stage_id%self.world_size
         self.send_grad(self.input_list[my_stage_id].pop(0).grad,target_rank)
-        # print("input grad ",my_stage_id,input_tensor.grad)
-        end_time=time.time()
-        # print(f"backward time:{my_stage_id} {end_time-start_time}")
         return
 
   
@@ -231,53 +204,49 @@ class Pipeline():
 
     def prefetch_model(self,my_stage_id:int):
         with torch.cuda.stream(self.load_stream):
-            with torch.profiler.record_function("prefetch model"):                  
-                if my_stage_id+self.world_size<self.num_stages:
-                    next_stage_id=my_stage_id+self.world_size
-                    if len(self.local_module_list)<self.num_stages//self.world_size:
-                        next_module=copy.deepcopy(self.module_list[next_stage_id]).half()
-                        for param in next_module.parameters():
-                            param.data = param.data.pin_memory()  # only pin memory can satisfy the requirement of cudaMemcpyAsync  
-                            param.data = param.data.to(self.device,non_blocking=True)
-                        for buffer_name, buffer in next_module.named_buffers():
-                            buffer.data = buffer.data.pin_memory()
-                            buffer.data = buffer.data.to(self.device, non_blocking=True)
-                        self.local_module_list.append([next_module,'gpu'])
-                    elif self.local_module_list[next_stage_id//self.world_size][1]=='cpu':
-                        next_module=self.local_module_list[next_stage_id//self.world_size][0]
-                        load(next_module,self.module_list[next_stage_id],self.load_stream)
-                        self.local_module_list[next_stage_id//self.world_size][1]='gpu'
+            with torch.profiler.record_function("prefetch model"):                           
+                next_stage_id=my_stage_id+self.world_size
+                # The first time when next_stage_module moved from cpu to gpu
+                if len(self.local_module_list)<self.num_stages//self.world_size:
+                    next_module=copy.deepcopy(self.module_list[next_stage_id]).half()
+                    for param in next_module.parameters():
+                        param.data = param.data.pin_memory()  # only pin memory can satisfy the requirement of cudaMemcpyAsync  
+                        param.data = param.data.to(self.device,non_blocking=True)
+                    for buffer_name, buffer in next_module.named_buffers():
+                        buffer.data = buffer.data.pin_memory()
+                        buffer.data = buffer.data.to(self.device, non_blocking=True)
+                    self.local_module_list.append([next_module,'gpu'])
+                # The structure of next_stage_module has already been on GPU
+                elif self.local_module_list[next_stage_id//self.world_size][1]=='cpu':
+                    next_module=self.local_module_list[next_stage_id//self.world_size][0]
+                    load(next_module,self.module_list[next_stage_id],self.load_stream)
+                    self.local_module_list[next_stage_id//self.world_size][1]='gpu'
         self.load_stream.synchronize()
-        # self.prefetch_done.set()
         return 
 
-    def forward_compute(self,input_tensor:torch.tensor,my_stage_id:int,chunk_id:int):    
+    def forward_compute(self,input_tensor:torch.tensor,my_stage_id:int,chunk_id:int): 
         # load module
-        if chunk_id==0:
+        if chunk_id==0:    
             with torch.cuda.stream(self.load_stream):
                 with torch.profiler.record_function("load model"):
                     # if myself has been prefetched
                     # if len(self.local_module_list)>my_stage_id//self.world_size and self.local_module_list[my_stage_id//self.world_size][1]=='gpu':
                     if my_stage_id-self.world_size>=0 and self.use_prefetch:
-                        # if self.prefetch_thread is not None:
-                        #     self.prefetch_thread.join()
-                        #     self.prefetch_thread=None
                         self.PrefetchThreadManager.wait_for_task_completion()
                         self.module=self.local_module_list[my_stage_id//self.world_size][0]
                     else:
                         # The first iteration, we need to load the model from the global model list
                         if len(self.local_module_list)<self.num_stages//self.world_size:
                             self.module=copy.deepcopy(self.module_list[my_stage_id]).half()
-                            # self.module=copy.deepcopy(self.module_list[my_stage_id])
                             self.module.to(self.device,non_blocking=True)
                             self.local_module_list.append([self.module,'gpu'])
                         # The following iterations, we need to load the model from the local model list
                         else:
                             self.module=self.local_module_list[my_stage_id//self.world_size][0]
                             load(self.module,self.module_list[my_stage_id],self.load_stream)
-                            self.local_module_list[my_stage_id//self.world_size][1]='gpu'
-                    self.load_event.record()
-
+                            self.local_module_list[my_stage_id//self.world_size][1]='gpu'          
+                self.load_event.record()
+                
                 
 
         # compute
@@ -291,40 +260,23 @@ class Pipeline():
                     input_tensor.requires_grad_(True)
                     input_tensor.retain_grad()
                     self.input_list[my_stage_id].append(input_tensor)
+                self.PrefetchThreadManager.wait_for_task_completion() # 小心之举，确保prefetch结束
                 activation=self.module(input_tensor)
                 self.compute_event.record()
 
         # prefetch model
         if self.use_prefetch:
             if chunk_id==0:
-                # self.prefetch_thread = threading.Thread(
-                #     target=self.prefetch_model,
-                #     args=(my_stage_id,)
-                # )
-                # self.prefetch_thread.start()
-                self.PrefetchThreadManager.submit_task(self.prefetch_model,my_stage_id)
-            
+                if my_stage_id+self.world_size<self.num_stages:
+                    self.PrefetchThreadManager.submit_task(self.prefetch_model,my_stage_id)
                 
-        # module.register_forward_pre_hook(reload)
-
-
         # offload
         with torch.cuda.stream(self.offload_stream):
             if chunk_id==self.num_chunks-1:
                 if my_stage_id+self.world_size<self.num_stages:
                     self.compute_event.wait()
-                    # if self.offload_thread is not None:
-                    #     self.offload_thread.join()
-                    #     self.offload_thread=None
-                    # self.offload_thread = threading.Thread(
-                    #     target=offload,
-                    #     args=(self.module,self.module_list[my_stage_id],self.offload_stream,)
-                    # )
-                    # self.offload_thread.start()
                     self.OffloadThreadManager.submit_task(offload,self.module,self.module_list[my_stage_id],self.offload_stream)
-                    # offload(self.module,self.module_list[my_stage_id],self.offload_stream)
                     self.local_module_list[my_stage_id//self.world_size][1]='cpu'
-
         self.compute_event.wait()
         return activation
 
@@ -337,14 +289,11 @@ class Pipeline():
         if chunk_id==0:
             # load_model
             self.module=self.local_module_list[my_stage_id//self.world_size][0]
-            self.OffloadThreadManager.wait_for_task_completion()
             if self.local_module_list[my_stage_id//self.world_size][1]=='cpu': 
                 load(self.module,self.module_list[my_stage_id],self.load_stream)
                 self.local_module_list[my_stage_id//self.world_size][1]='gpu'
-            # if self.prefetch_thread is not None:
-            #     self.prefetch_thread.join()
-            #     self.prefetch_thread=None
-            self.PrefetchThreadManager.wait_for_task_completion()
+            if self.use_prefetch:
+                self.PrefetchThreadManager.wait_for_task_completion()
             self.load_event.record()
 
             # prefetch model
@@ -353,16 +302,9 @@ class Pipeline():
                     last_stage_id=my_stage_id-self.world_size
                     last_module=self.local_module_list[last_stage_id//self.world_size][0]
                     if self.local_module_list[last_stage_id//self.world_size][1]=='cpu':
-                        # self.prefetch_thread = threading.Thread(
-                        #     target=load,
-                        #     args=(last_module,self.module_list[last_stage_id],self.load_stream,)
-                        # )
-                        # self.prefetch_thread.start()
-                        self.OffloadThreadManager.wait_for_task_completion()
                         self.PrefetchThreadManager.submit_task(load,last_module,self.module_list[last_stage_id],self.load_stream)
-                        # load(last_module,self.module_list[last_stage_id])
                         self.local_module_list[last_stage_id//self.world_size][1]='gpu'
-
+        # backward compute
         with torch.cuda.stream(self.compute_stream):
             with torch.profiler.record_function("model_backward"):
                 if accu_grad is None:
@@ -374,7 +316,6 @@ class Pipeline():
                     self.load_event.wait()
                     torch.autograd.backward(F.cross_entropy(logits, correct_result))
                     self.compute_event.record()
-                    # torch.autograd.backward(activation.mean)
                     if chunk_id==0:
                         print("pipe output",output)
                 else:
@@ -388,19 +329,12 @@ class Pipeline():
         with torch.cuda.stream(self.offload_stream):
             if chunk_id==self.num_chunks-1:
                 self.compute_event.wait()
-                # if self.offload_thread is not None:
-                #     self.offload_done.wait()
-                # self.offload_thread = threading.Thread(
-                #         target=offload,
-                #         args=(self.module,self.module_list[my_stage_id],self.offload_stream,)
-                # )
-                # self.offload_thread.start()
-                # offload(self.module,self.module_list[my_stage_id],self.offload_stream)
                 self.OffloadThreadManager.submit_task(offload,self.module,self.module_list[my_stage_id],self.offload_stream)
                 self.local_module_list[my_stage_id//self.world_size][1]='cpu'
 
         self.compute_event.wait()
         return 
+    
 
 
     def send_activation(self,target_rank:int,activation:torch.tensor):
