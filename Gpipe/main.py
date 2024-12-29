@@ -41,8 +41,6 @@ if __name__ =="__main__":
     parser.add_argument('--no_prefetch', action='store_false', dest='use_prefetch', help='Disable prefetch trick')
     parser.add_argument('--use_offload', action='store_true',help='use model offload strategy')
     parser.add_argument('--no_offload',action='store_false',dest='use_offload',help='Disable model offload strategy')
-    parser.add_argument('--use_offload', action='store_true',help='use model offload strategy')
-    parser.add_argument('--no_offload',action='store_false',dest='use_offload',help='Disable model offload strategy')
 
     args=parser.parse_args()
 
@@ -127,7 +125,6 @@ if __name__ =="__main__":
     #     schedule=torch.profiler.schedule(  
     #         wait=2, 
     #         warmup=3,  # 接下来的 2 步为 warm-up
-    #         warmup=3,  # 接下来的 2 步为 warm-up
     #         active=1   # 随后 1 步记录 profiling 数据
     #     ),
     #     record_shapes=True,       # 记录张量形状
@@ -136,15 +133,12 @@ if __name__ =="__main__":
     # ) as prof:
     #     for step in range(6):   
     # pipeline execution
-    #     for step in range(6):   
-    # pipeline execution
     training_time=0
     for i in range(args.num_iterations):
         start_time=time.time()
         pipeline.optimizer.zero_grad()
         pipeline.run_pipeline(action_list)
         dist.barrier()
-        # pipeline.offload_thread.join()
         OffloadThreadManager.wait_for_task_completion()
         torch.cuda.synchronize()
         end_time=time.time()
@@ -158,12 +152,6 @@ if __name__ =="__main__":
                 print("step time = {}".format(end_step_time-start_step_time),file=f)
                 print(f"--------------- finish training step {i}",file=f)
                 print(i, time.time()-start_time,file=f) 
-    # torch.cuda.empty_cache()
-    pipeline.PrefetchThreadManager.shutdown()
-    pipeline.OffloadThreadManager.shutdown()
-    #         PrefetchThreadManager=ThreadManager()
-    #         OffloadThreadManager=ThreadManager()
-    #         pipeline=Pipeline(args,module_list,world_size,global_rank,local_rank,embedding_layer,train_batches,norm_layer,lm_head,PrefetchThreadManager,OffloadThreadManager) 
     # torch.cuda.empty_cache()
     pipeline.PrefetchThreadManager.shutdown()
     pipeline.OffloadThreadManager.shutdown()
@@ -184,7 +172,7 @@ if __name__ =="__main__":
         with open(args.save_results,'a') as f:
             print("training time = {}".format(training_time),file=f)
     
-    # dist.destroy_process_group()
+    dist.destroy_process_group()
     '''
 
     Two different method to fine-tune a complete model on only one device.
