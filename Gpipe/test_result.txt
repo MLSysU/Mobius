@@ -1552,3 +1552,62 @@ cuda 0: Peak memory 4.88 GB ; Persistent memory 1.28 GB
 training time = 26.4311683177948
 cuda 3: Peak memory 4.77 GB ; Persistent memory 0.78 GB
 cuda 2: Peak memory 4.30 GB ; Persistent memory 0.54 GB
+num_iterations = 4
+batch_size = 64
+num_layers = 32
+num_stages = 8
+use_prefetch = False
+use_offload = False
+step time = 4.8037192821502686
+--------------- finish training step 0
+0 23.02617073059082
+step time = 3.456218719482422
+--------------- finish training step 1
+1 8.702428817749023
+step time = 3.4657106399536133
+--------------- finish training step 2
+2 8.71898365020752
+cuda 3: Peak memory 4.65 GB ; Persistent memory 0.78 GB
+cuda 2: Peak memory 4.26 GB ; Persistent memory 0.54 GB
+step time = 3.4762697219848633
+--------------- finish training step 3
+3 9.030526876449585
+cuda 0: Peak memory 4.88 GB ; Persistent memory 1.28 GB
+|===========================================================================|
+|                  PyTorch CUDA memory summary, device ID 0                 |
+|---------------------------------------------------------------------------|
+|            CUDA OOMs: 0            |        cudaMalloc retries: 0         |
+|===========================================================================|
+|        Metric         | Cur Usage  | Peak Usage | Tot Alloc  | Tot Freed  |
+|---------------------------------------------------------------------------|
+| Allocated memory      |   1314 MiB |   4996 MiB |  85256 MiB |  83942 MiB |
+|---------------------------------------------------------------------------|
+| Active memory         |   1314 MiB |   4996 MiB |  85256 MiB |  83942 MiB |
+|---------------------------------------------------------------------------|
+| Requested memory      |   1314 MiB |   4972 MiB |  85028 MiB |  83714 MiB |
+|---------------------------------------------------------------------------|
+| GPU reserved memory   |   5356 MiB |   5356 MiB |   5356 MiB |      0 B   |
+|---------------------------------------------------------------------------|
+| Non-releasable memory | 122550 KiB | 495406 KiB |  23588 MiB |  23468 MiB |
+|---------------------------------------------------------------------------|
+| Allocations           |      51    |     208    |    3760    |    3709    |
+|---------------------------------------------------------------------------|
+| Active allocs         |      52    |     208    |    3760    |    3708    |
+|---------------------------------------------------------------------------|
+| GPU reserved segments |     143    |     143    |     143    |       0    |
+|---------------------------------------------------------------------------|
+| Non-releasable allocs |      11    |      38    |    1260    |    1249    |
+|---------------------------------------------------------------------------|
+| Oversize allocations  |       0    |       0    |       0    |       0    |
+|---------------------------------------------------------------------------|
+| Oversize GPU segments |       0    |       0    |       0    |       0    |
+|===========================================================================|
+
+training time = 34.27578020095825
+cuda 1: Peak memory 4.26 GB ; Persistent memory 0.54 GB
+num_iterations = 4
+batch_size = 64
+num_layers = 32
+num_stages = 8
+use_prefetch = False
+use_offload = False

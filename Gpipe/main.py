@@ -104,7 +104,7 @@ if __name__ =="__main__":
     module_list=generate_module(args,config,layers_list)
 
     # module_list=generate_module1(args)
-    # model_list=copy.deepcopy(module_list)
+    model_list=copy.deepcopy(module_list)
 
     # sustain a prefetch thread and a offload thread for every GPU.
     PrefetchThreadManager=ThreadManager()
@@ -171,12 +171,11 @@ if __name__ =="__main__":
         with open(args.save_results,'a') as f:
             print("training time = {}".format(training_time),file=f)
     
-    dist.destroy_process_group()
-
+    # dist.destroy_process_group()
     '''
+
     Two different method to fine-tune a complete model on only one device.
     Comparison experiment to evaulate the pipeline strategy and offload/reload strategy of Mobius, using time and memory occupation as metrics respectively.
-    '''
     '''
     if global_rank==0:
         another_optimizer=my_optimizer(model_list)
@@ -242,7 +241,6 @@ if __name__ =="__main__":
         print("baseline training time = {}".format(training_time))
     
     dist.destroy_process_group()
-    '''
 
     # if global_rank==0:
     #     another_optimizer=my_optimizer(model_list)
