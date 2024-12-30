@@ -55,17 +55,12 @@ class Pipeline():
         self.module=None
         self.local_module_list=[]
         self.load_stream=torch.cuda.Stream()
-        self.comm_stream=torch.cuda.Stream()
         self.compute_stream=torch.cuda.Stream()
         self.offload_stream=torch.cuda.Stream()
         self.load_event=torch.cuda.Event()
         self.compute_event=torch.cuda.Event()
-        self.offload_event=torch.cuda.Event()
-        self.prefetch_thread=None
-        self.offload_thread=None
         self.use_prefetch=args.use_prefetch
-        self.offload_done = threading.Event()
-        self.prefetch_done = threading.Event()
+        self.use_offload=args.use_offload
         self.PrefetchThreadManager=PrefetchThreadManager
         self.OffloadThreadManager=OffloadThreadManager
         
@@ -260,7 +255,7 @@ class Pipeline():
                     input_tensor.requires_grad_(True)
                     input_tensor.retain_grad()
                     self.input_list[my_stage_id].append(input_tensor)
-                self.PrefetchThreadManager.wait_for_task_completion() # 小心之举，确保prefetch结束
+                # self.PrefetchThreadManager.wait_for_task_completion() # 小心之举，确保prefetch结束
                 activation=self.module(input_tensor)
                 self.compute_event.record()
 
@@ -271,12 +266,13 @@ class Pipeline():
                     self.PrefetchThreadManager.submit_task(self.prefetch_model,my_stage_id)
                 
         # offload
-        with torch.cuda.stream(self.offload_stream):
-            if chunk_id==self.num_chunks-1:
-                if my_stage_id+self.world_size<self.num_stages:
-                    self.compute_event.wait()
-                    self.OffloadThreadManager.submit_task(offload,self.module,self.module_list[my_stage_id],self.offload_stream)
-                    self.local_module_list[my_stage_id//self.world_size][1]='cpu'
+        if self.use_offload:
+            with torch.cuda.stream(self.offload_stream):
+                if chunk_id==self.num_chunks-1:
+                    if my_stage_id+self.world_size<self.num_stages:
+                        self.compute_event.wait()
+                        self.OffloadThreadManager.submit_task(offload,self.module,self.module_list[my_stage_id],self.offload_stream)
+                        self.local_module_list[my_stage_id//self.world_size][1]='cpu'
         self.compute_event.wait()
         return activation
 
@@ -316,8 +312,8 @@ class Pipeline():
                     self.load_event.wait()
                     torch.autograd.backward(F.cross_entropy(logits, correct_result))
                     self.compute_event.record()
-                    if chunk_id==0:
-                        print("pipe output",output)
+                    # if chunk_id==0:
+                    #     print("pipe output",output)
                 else:
                     self.load_event.wait()
                     torch.autograd.backward(activation,grad_tensors=accu_grad)
