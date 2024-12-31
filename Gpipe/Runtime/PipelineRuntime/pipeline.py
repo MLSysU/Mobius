@@ -27,6 +27,7 @@ class Pipeline():
         self.world_size=world_size
         self.num_stages=args.num_stages
         self.my_rank=global_rank
+        self.my_rank=global_rank
         self.local_rank=local_rank
         self.input_chunk_id=0
         self.last_send=None # 上一次异步发送是否成功结束的标志
@@ -35,16 +36,21 @@ class Pipeline():
         self.total_parameters=0
         self.optimizer=self.construct_optimizer()
         self.input_data = [[] for _ in range(args.num_iterations)]
+        self.input_data = [[] for _ in range(args.num_iterations)]
         self.iteration=-1
         self.device=torch.device(f'cuda:{local_rank}')
         self.last_recv_tensor=torch.zeros([self.batch_size//self.num_chunks,self.seq_length,self.embedding_dim],dtype=self.dtype,device=self.device)
         self.train_batches=train_batches
         self.embedding_layer=embedding_layer.half()
+        self.embedding_layer=embedding_layer.half()
         self.norm_layer=norm_layer.half().to(self.device)
         self.lm_head=lm_head.half().to(self.device)
         self.state_dict = [{} for _ in range(self.num_stages)] 
         self.offload_stream=torch.cuda.Stream()
+        self.compute_stream=torch.cuda.Stream()
+        self.compute_event=torch.cuda.Event()
         self.OffloadThreadManager=OffloadThreadManager
+
 
     def construct_optimizer(self):
         parameters=[]
@@ -53,6 +59,8 @@ class Pipeline():
             parameters+=module_parameter
             self.total_parameters+=sum(p.numel() for p in module_parameter)
         return torch.optim.Adam(parameters,lr=0.0001,weight_decay=1e-3)
+
+
 
 
 
@@ -93,8 +101,6 @@ class Pipeline():
         input_data=self.embedding_layer(input_data)
         self.input_data[self.iteration].append(input_data)
         self.input_list[my_stage_id].append(input_data)
-        # with torch.cuda.stream(self.load)
-        # still working...
 
         # compute
         result_tensor=self.forward_compute(input_data,my_stage_id,chunk_id)
@@ -102,7 +108,6 @@ class Pipeline():
         # send activation
         target_rank=target_stage_id%self.world_size
         self.send_activation(target_rank,result_tensor)
-        # make_dot(result_tensor, params={"input_data": input_data}).render("graph", format="png")
         return 
 
     def forward_middle(self,source_stage_id:int,my_stage_id:int,target_stage_id:int,chunk_id:int):
@@ -134,7 +139,6 @@ class Pipeline():
         # forward compute
         result_tensor=self.forward_compute(input_data,my_stage_id,chunk_id)
         self.activation_list[my_stage_id].append(result_tensor)
-        # print("pipeline output ",my_stage_id,self.iteration,self.input_chunk_id,result_tensor)
         return 
 
 
@@ -184,6 +188,8 @@ class Pipeline():
         input_tensor=self.input_list[my_stage_id].pop()
         input_tensor.retain_grad()
         my_activation=self.activation_list[my_stage_id].pop()
+        if chunk_id==0:
+            print("my_activation ",my_activation)
         self.backward_compute(my_activation,my_stage_id,chunk_id)
         # send input.grad
         target_rank=target_stage_id%self.world_size
@@ -212,26 +218,30 @@ class Pipeline():
         # Loss/偏w=下一个stage发送来的累积*(偏activation/偏w)
         # 下一个阶段发送来的梯度累计是关于下一层的输入的梯度
         # 这里先用.mean()来代替
+        # 这里先用.mean()来代替
         # 当backward()只有一个参数时，那个参数必须是标量；如果有grad_tensor时，activation可以是tensor类型
 
-        if accu_grad is None:
-            output=self.norm_layer(activation)
-            logits=self.lm_head(output[:, -32:, :])
-            logits = logits.view(-1, logits.size(-1))
-            correct_result=self.train_batches[self.iteration*self.num_chunks+chunk_id]["labels"].to(self.device)
-            correct_result=correct_result.view(-1)
-            torch.autograd.backward(F.cross_entropy(logits, correct_result))
-            if chunk_id==0:
-                print(f"output {output}")
-            # torch.autograd.backward(activation.mean)
-        else:
-            torch.autograd.backward(activation,grad_tensors=accu_grad)
+        with torch.cuda.stream(self.compute_stream):
+            with torch.profiler.record_function("model_backward"):
+                if accu_grad is None:
+                    if chunk_id==0:
+                        print(f"activation {activation}")
+                    output=self.norm_layer(activation)
+                    logits=self.lm_head(output[:, -32:, :])
+                    logits = logits.view(-1, logits.size(-1))
+                    correct_result=self.train_batches[self.iteration*self.num_chunks+chunk_id]["labels"].to(self.device)
+                    correct_result=correct_result.view(-1)
+                    torch.autograd.backward(F.cross_entropy(logits, correct_result))
+                    if chunk_id==0:
+                        print(f"output {output}")
+                else:
+                    torch.autograd.backward(activation,grad_tensors=accu_grad)
+            self.compute_event.record()
 
         # offload model
         with torch.cuda.stream(self.offload_stream):
             if chunk_id==self.num_chunks-1:
                 self.OffloadThreadManager.submit_task(offload,self.module,self.module_list[my_stage_id],self.offload_stream)
-
 
         return 
 
@@ -340,8 +350,12 @@ class Pipeline():
 
     
 
+    
 
 
 
+
+
+    
 
     
