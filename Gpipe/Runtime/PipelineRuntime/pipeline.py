@@ -15,6 +15,7 @@ def print_grad(grad):
 class Pipeline():
     def __init__(self,args,module_list:list,world_size:int,global_rank:int,local_rank:int,embedding_layer,train_batches,norm_layer,lm_head,OffloadThreadManager):
         self.module_list=module_list
+        self.local_module_list=[]
         self.src_list=[] # inputs fetched by stage0
         self.activation_list=[[] for _ in range(args.num_stages)] # 一个gpu可能负责多个stage,每个stage又有很多micro_batch的activation,所以写成长度为num_stages的数组
         self.grad_list=[[] for _ in range(args.num_stages)] 
@@ -49,6 +50,7 @@ class Pipeline():
         self.offload_stream=torch.cuda.Stream()
         self.compute_stream=torch.cuda.Stream()
         self.compute_event=torch.cuda.Event()
+        self.offload_event=torch.cuda.Event()
         self.OffloadThreadManager=OffloadThreadManager
 
 
@@ -188,8 +190,6 @@ class Pipeline():
         input_tensor=self.input_list[my_stage_id].pop()
         input_tensor.retain_grad()
         my_activation=self.activation_list[my_stage_id].pop()
-        if chunk_id==0:
-            print("my_activation ",my_activation)
         self.backward_compute(my_activation,my_stage_id,chunk_id)
         # send input.grad
         target_rank=target_stage_id%self.world_size
@@ -207,7 +207,8 @@ class Pipeline():
         if chunk_id==0:
             self.module=copy.deepcopy(self.module_list[my_stage_id]).half()
             self.module.to(self.device)
-        # module.register_forward_pre_hook(reload)
+            self.local_module_list.append(self.module)
+  
         # compute
         activation=self.module(input_tensor)
         return activation
@@ -221,28 +222,28 @@ class Pipeline():
         # 这里先用.mean()来代替
         # 当backward()只有一个参数时，那个参数必须是标量；如果有grad_tensor时，activation可以是tensor类型
 
-        with torch.cuda.stream(self.compute_stream):
-            with torch.profiler.record_function("model_backward"):
-                if accu_grad is None:
-                    if chunk_id==0:
-                        print(f"activation {activation}")
-                    output=self.norm_layer(activation)
-                    logits=self.lm_head(output[:, -32:, :])
-                    logits = logits.view(-1, logits.size(-1))
-                    correct_result=self.train_batches[self.iteration*self.num_chunks+chunk_id]["labels"].to(self.device)
-                    correct_result=correct_result.view(-1)
-                    torch.autograd.backward(F.cross_entropy(logits, correct_result))
-                    if chunk_id==0:
-                        print(f"output {output}")
-                else:
-                    torch.autograd.backward(activation,grad_tensors=accu_grad)
-            self.compute_event.record()
+        # with torch.cuda.stream(self.compute_stream):
+        #     with torch.profiler.record_function("model_backward"):
+        if accu_grad is None:
+            output=self.norm_layer(activation)
+            logits=self.lm_head(output[:, -32:, :])
+            logits = logits.view(-1, logits.size(-1))
+            correct_result=self.train_batches[self.iteration*self.num_chunks+chunk_id]["labels"].to(self.device)
+            correct_result=correct_result.view(-1)
+            torch.autograd.backward(F.cross_entropy(logits, correct_result))
+        else:
+            torch.autograd.backward(activation,grad_tensors=accu_grad)
+            # self.compute_event.record()
 
         # offload model
-        with torch.cuda.stream(self.offload_stream):
-            if chunk_id==self.num_chunks-1:
-                self.OffloadThreadManager.submit_task(offload,self.module,self.module_list[my_stage_id],self.offload_stream)
+        torch.cuda.synchronize()
+        if chunk_id==self.num_chunks-1:
+            # self.compute_event.wait()
+            # self.OffloadThreadManager.submit_task(offload,self.module,self.module_list[my_stage_id],self.offload_stream)
+            offload(self.local_module_list[my_stage_id//self.world_size],self.module_list[my_stage_id],self.offload_stream)
 
+        
+        # self.compute_event.wait()
         return 
 
 

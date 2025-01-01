@@ -11,7 +11,7 @@ class ThreadManager:
 
     def _worker(self):
         while True:
-            task, args, kwargs = self.task_queue.get()  # 从队列中取出任务
+            task, args, kwargs = self.task_queue.get()  # 从队列中取出任务,如果队列为空，线程会阻塞
             if task is None:  # 退出信号
                 break
             # 执行任务前加锁

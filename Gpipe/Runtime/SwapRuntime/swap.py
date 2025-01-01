@@ -58,28 +58,27 @@ def offload(model,cpu_model,offload_stream):
                             cpu_model_param.grad = torch.empty_like(param.grad, device='cpu', dtype=torch.float32).copy_(param.grad)
                             # #param.grad.untyped_storage().resize_(0)
                             param.grad=None
+                model=None
     offload_stream.synchronize()
     # torch.cuda.empty_cache()
     return 
 
 
-def load(model,cpu_model,load_stream):
+def load(model,cpu_model):
     # model reload, resize the model params' memory storage and fill it with params copy in CPU which is also referred by optimizer.
     # still working...
-    with torch.cuda.stream(load_stream):
-        with torch.profiler.record_function("prefetch_load_model"):
-            cpu_model_dict=dict(cpu_model.named_parameters())
-            for name,param in model.named_parameters():
-                if param.is_cuda:
-                    cpu_tensor=cpu_model_dict[name]
-                    half_tensor_data=cpu_tensor.data.to(dtype=torch.float16,device='cpu')
-                    param.data.untyped_storage().resize_(half_tensor_data.untyped_storage().size())
-                    param.data.copy_(half_tensor_data)
-                    if cpu_tensor.grad is not None:
-                        half_tensor_grad=cpu_tensor.grad.to(dtype=torch.float16,device='cpu')
-                        # param.grad.untyped_storage().resize_(half_tensor.grad.untyped_storage().size())
-                        # param.grad.copy_(half_tensor.grad)
-                        param.grad=torch.empty_like(half_tensor_grad,device='cuda').copy_(half_tensor_grad)
+    cpu_model_dict=dict(cpu_model.named_parameters())
+    for name,param in model.named_parameters():
+        if param.is_cuda:
+            cpu_tensor=cpu_model_dict[name]
+            half_tensor_data=cpu_tensor.data.to(dtype=torch.float16,device='cpu')
+            param.data.untyped_storage().resize_(half_tensor_data.untyped_storage().size())
+            param.data.copy_(half_tensor_data)
+            if cpu_tensor.grad is not None:
+                half_tensor_grad=cpu_tensor.grad.to(dtype=torch.float16,device='cpu')
+                # param.grad.untyped_storage().resize_(half_tensor.grad.untyped_storage().size())
+                # param.grad.copy_(half_tensor.grad)
+                param.grad=torch.empty_like(half_tensor_grad,device='cuda').copy_(half_tensor_grad)
     # torch.cuda.empty_cache()
     return 
 

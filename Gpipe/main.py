@@ -147,7 +147,7 @@ if __name__ =="__main__":
                 pipeline.optimizer.zero_grad()
                 pipeline.run_pipeline(action_list)
                 dist.barrier()
-                OffloadThreadManager.wait_for_task_completion()
+                # OffloadThreadManager.wait_for_task_completion()
                 torch.cuda.synchronize()
                 end_time=time.time()
                 start_step_time=time.time()
@@ -160,7 +160,7 @@ if __name__ =="__main__":
                         print("step time = {}".format(end_step_time-start_step_time),file=f)
                         print(f"--------------- finish training step {i}",file=f)
                         print(i, time.time()-start_time,file=f) 
-            # torch.cuda.empty_cache()
+            torch.cuda.empty_cache()
             '''
             pipeline.PrefetchThreadManager.shutdown()
             '''
