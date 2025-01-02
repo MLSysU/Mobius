@@ -151,6 +151,9 @@ if __name__ =="__main__":
                 torch.cuda.synchronize()
                 end_time=time.time()
                 start_step_time=time.time()
+                for param in module_list[0].parameters():
+                    if param.grad is not None:
+                        print(param.grad)
                 pipeline.optimizer.step()
                 end_step_time=time.time()
                 # torch.cuda.empty_cache()

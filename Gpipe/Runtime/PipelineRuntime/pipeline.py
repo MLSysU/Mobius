@@ -240,10 +240,12 @@ class Pipeline():
 
         # offload model
         torch.cuda.synchronize()
+        if accu_grad is None:
+            print(f"output {output}")
         if chunk_id==self.num_chunks-1:
             self.compute_event.wait()
-            # self.OffloadThreadManager.submit_task(offload,self.module,self.module_list[my_stage_id],self.offload_stream)
-            offload(self.local_module_list[my_stage_id//self.world_size],self.module_list[my_stage_id],self.offload_stream)
+            self.OffloadThreadManager.submit_task(offload,self.local_module_list[my_stage_id//self.world_size],self.module_list[my_stage_id],self.offload_stream)
+            # offload(self.local_module_list[my_stage_id//self.world_size],self.module_list[my_stage_id],self.offload_stream)
 
         
         self.compute_event.wait()
