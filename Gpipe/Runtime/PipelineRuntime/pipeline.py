@@ -207,7 +207,10 @@ class Pipeline():
         if chunk_id==0:
             self.module=copy.deepcopy(self.module_list[my_stage_id]).half()
             self.module.to(self.device)
-            self.local_module_list.append(self.module)
+            if len(self.local_module_list)<=my_stage_id//self.world_size:
+                self.local_module_list.append(self.module)
+            else:
+                self.local_module_list[my_stage_id//self.world_size]=self.module
   
         # compute
         activation=self.module(input_tensor)
@@ -222,28 +225,28 @@ class Pipeline():
         # 这里先用.mean()来代替
         # 当backward()只有一个参数时，那个参数必须是标量；如果有grad_tensor时，activation可以是tensor类型
 
-        # with torch.cuda.stream(self.compute_stream):
-        #     with torch.profiler.record_function("model_backward"):
-        if accu_grad is None:
-            output=self.norm_layer(activation)
-            logits=self.lm_head(output[:, -32:, :])
-            logits = logits.view(-1, logits.size(-1))
-            correct_result=self.train_batches[self.iteration*self.num_chunks+chunk_id]["labels"].to(self.device)
-            correct_result=correct_result.view(-1)
-            torch.autograd.backward(F.cross_entropy(logits, correct_result))
-        else:
-            torch.autograd.backward(activation,grad_tensors=accu_grad)
-            # self.compute_event.record()
+        with torch.cuda.stream(self.compute_stream):
+            with torch.profiler.record_function("model_backward"):
+                if accu_grad is None:
+                    output=self.norm_layer(activation)
+                    logits=self.lm_head(output[:, -32:, :])
+                    logits = logits.view(-1, logits.size(-1))
+                    correct_result=self.train_batches[self.iteration*self.num_chunks+chunk_id]["labels"].to(self.device)
+                    correct_result=correct_result.view(-1)
+                    torch.autograd.backward(F.cross_entropy(logits, correct_result))
+                else:
+                    torch.autograd.backward(activation,grad_tensors=accu_grad)
+            self.compute_event.record()
 
         # offload model
         torch.cuda.synchronize()
         if chunk_id==self.num_chunks-1:
-            # self.compute_event.wait()
+            self.compute_event.wait()
             # self.OffloadThreadManager.submit_task(offload,self.module,self.module_list[my_stage_id],self.offload_stream)
             offload(self.local_module_list[my_stage_id//self.world_size],self.module_list[my_stage_id],self.offload_stream)
 
         
-        # self.compute_event.wait()
+        self.compute_event.wait()
         return 
 
 

@@ -147,7 +147,7 @@ if __name__ =="__main__":
                 pipeline.optimizer.zero_grad()
                 pipeline.run_pipeline(action_list)
                 dist.barrier()
-                # OffloadThreadManager.wait_for_task_completion()
+                OffloadThreadManager.wait_for_task_completion()
                 torch.cuda.synchronize()
                 end_time=time.time()
                 start_step_time=time.time()
