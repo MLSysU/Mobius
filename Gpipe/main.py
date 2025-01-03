@@ -27,7 +27,7 @@ if __name__ =="__main__":
     parser=argparse.ArgumentParser()
     parser.add_argument('--batch_size',default=64,type=int,help='batch size')
     parser.add_argument('--num_chunks',default=4,type=int,help='M, namely number of micro batches')
-    parser.add_argument('--seq_length', default=128, type=int, help='sequence length, should not be changed')
+    parser.add_argument('--seq_length', default=256, type=int, help='sequence length, should not be changed')
     parser.add_argument('--embedding_dim', default=4096, type=int, help='embedding dimension in a Transformer layer, 4096 for Llama-2-7b')
     parser.add_argument('--ff_dim', default=4096, type=int, help='dimension in a FeedForward layer')
     parser.add_argument('--num_iterations', default=2, type=int, help='number of iterations, namely number of batches')
@@ -107,14 +107,12 @@ if __name__ =="__main__":
     # model_list=copy.deepcopy(module_list)
 
     # sustain a prefetch thread and a offload thread for every GPU.
-    '''
     PrefetchThreadManager=ThreadManager()
-    '''
     OffloadThreadManager=ThreadManager()
-    '''
     pipeline=Pipeline(args,module_list,world_size,global_rank,local_rank,embedding_layer,train_batches,norm_layer,lm_head,PrefetchThreadManager,OffloadThreadManager)
     '''
     pipeline=Pipeline(args,module_list,world_size,global_rank,local_rank,embedding_layer,train_batches,norm_layer,lm_head,OffloadThreadManager)
+    '''
 
     torch.cuda.synchronize()
     
@@ -127,7 +125,7 @@ if __name__ =="__main__":
             torch.profiler.ProfilerActivity.CUDA
         ],
         schedule=torch.profiler.schedule(  
-            wait=2, 
+            wait=1, 
             warmup=2,  # 接下来的 2 步为 warm-up
             active=1   # 随后 1 步记录 profiling 数据
         ),
@@ -151,9 +149,6 @@ if __name__ =="__main__":
                 torch.cuda.synchronize()
                 end_time=time.time()
                 start_step_time=time.time()
-                for param in module_list[0].parameters():
-                    if param.grad is not None:
-                        print(param.grad)
                 pipeline.optimizer.step()
                 end_step_time=time.time()
                 # torch.cuda.empty_cache()
@@ -164,18 +159,14 @@ if __name__ =="__main__":
                         print(f"--------------- finish training step {i}",file=f)
                         print(i, time.time()-start_time,file=f) 
             torch.cuda.empty_cache()
-            '''
             pipeline.PrefetchThreadManager.shutdown()
-            '''
             pipeline.OffloadThreadManager.shutdown()
-            '''
             PrefetchThreadManager=ThreadManager()
-            '''
             OffloadThreadManager=ThreadManager()
-            '''
             pipeline=Pipeline(args,module_list,world_size,global_rank,local_rank,embedding_layer,train_batches,norm_layer,lm_head,PrefetchThreadManager,OffloadThreadManager) 
             '''
             pipeline=Pipeline(args,module_list,world_size,global_rank,local_rank,embedding_layer,train_batches,norm_layer,lm_head,OffloadThreadManager)
+            '''
             prof.step() 
 
     print(prof.key_averages().table(sort_by="cuda_memory_usage", row_limit=10))

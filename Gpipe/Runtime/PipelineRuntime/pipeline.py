@@ -13,7 +13,7 @@ def print_grad(grad):
 
 
 class Pipeline():
-    def __init__(self,args,module_list:list,world_size:int,global_rank:int,local_rank:int,embedding_layer,train_batches,norm_layer,lm_head,OffloadThreadManager):
+    def __init__(self,args,module_list:list,world_size:int,global_rank:int,local_rank:int,embedding_layer,train_batches,norm_layer,lm_head,PrefetchThreadManager,OffloadThreadManager):
         self.module_list=module_list
         self.local_module_list=[]
         self.src_list=[] # inputs fetched by stage0
@@ -47,11 +47,13 @@ class Pipeline():
         self.norm_layer=norm_layer.half().to(self.device)
         self.lm_head=lm_head.half().to(self.device)
         self.state_dict = [{} for _ in range(self.num_stages)] 
+        self.load_stream=torch.cuda.Stream()
         self.offload_stream=torch.cuda.Stream()
         self.compute_stream=torch.cuda.Stream()
         self.compute_event=torch.cuda.Event()
         self.offload_event=torch.cuda.Event()
         self.OffloadThreadManager=OffloadThreadManager
+        self.PrefetchThreadManager=PrefetchThreadManager
 
 
     def construct_optimizer(self):
@@ -60,7 +62,7 @@ class Pipeline():
             module_parameter=list(module.parameters())  # parameters()是nn.Module自带的函数，返回一个生成器，可以迭代调用出模型每一层的参数大小
             parameters+=module_parameter
             self.total_parameters+=sum(p.numel() for p in module_parameter)
-        return torch.optim.Adam(parameters,lr=0.0001,weight_decay=1e-3)
+        return torch.optim.Adam(parameters,lr=1e-7,weight_decay=1e-3)
 
 
 
@@ -96,6 +98,9 @@ class Pipeline():
     # 3.最后一个stage需要从上个stage那里拿到计算结果，前向计算
 
     def forward_first(self,my_stage_id:int,target_stage_id:int,chunk_id:int):
+        # clear module on gpu
+        if chunk_id==0:
+            self.local_module_list=[]
         # get data
         input_data=self.get_data()
         # embedding layer
@@ -205,12 +210,24 @@ class Pipeline():
     def forward_compute(self,input_tensor:torch.tensor,my_stage_id:int,chunk_id:int): 
         # load module
         if chunk_id==0:
-            self.module=copy.deepcopy(self.module_list[my_stage_id]).half()
-            self.module.to(self.device)
-            if len(self.local_module_list)<=my_stage_id//self.world_size:
-                self.local_module_list.append(self.module)
-            else:
-                self.local_module_list[my_stage_id//self.world_size]=self.module
+            #loal module
+            with torch.cuda.stream(self.load_stream):
+                with torch.profiler.record_function("model_load"):
+                    # has been prefetched
+                    if my_stage_id-self.world_size>=0:
+                        while len(self.local_module_list)<=my_stage_id//self.world_size:
+                            self.PrefetchThreadManager.wait_for_task_completion()
+                        self.module=self.local_module_list[my_stage_id//self.world_size]
+                    # no prefetch
+                    else:
+                        self.module=copy.deepcopy(self.module_list[my_stage_id])
+                        self.module.to(self.device)
+                        self.module.half()
+                        self.local_module_list.append(self.module)
+
+            # prefetch
+            if my_stage_id+self.world_size<self.num_stages:
+                self.PrefetchThreadManager.submit_task(swap,self.module_list[my_stage_id+self.world_size],self.device,self.local_module_list,self.load_stream)
   
         # compute
         activation=self.module(input_tensor)
@@ -229,7 +246,7 @@ class Pipeline():
             with torch.profiler.record_function("model_backward"):
                 if accu_grad is None:
                     output=self.norm_layer(activation)
-                    logits=self.lm_head(output[:, -32:, :])
+                    logits=self.lm_head(output[:, -64:, :])
                     logits = logits.view(-1, logits.size(-1))
                     correct_result=self.train_batches[self.iteration*self.num_chunks+chunk_id]["labels"].to(self.device)
                     correct_result=correct_result.view(-1)
@@ -240,7 +257,7 @@ class Pipeline():
 
         # offload model
         torch.cuda.synchronize()
-        if accu_grad is None:
+        if accu_grad is None and chunk_id==0:
             print(f"output {output}")
         if chunk_id==self.num_chunks-1:
             self.compute_event.wait()

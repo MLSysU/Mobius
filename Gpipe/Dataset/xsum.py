@@ -19,7 +19,7 @@ def preprocess_xsum(tokenizer,batch_size,model):
             documents,
             truncation=True,
             padding="max_length",
-            max_length=128,  
+            max_length=256,  
             return_tensors="pt"
         )
 
@@ -27,7 +27,7 @@ def preprocess_xsum(tokenizer,batch_size,model):
             summaries,
             truncation=True,
             padding="max_length",
-            max_length=32,  
+            max_length=64,  
             return_tensors="pt"
         )
 
