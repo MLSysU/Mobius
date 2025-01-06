@@ -50,14 +50,14 @@ def offload(model,cpu_model,offload_stream):
             with torch.no_grad():
                 for name, param in model.named_parameters():
                     if param.is_cuda:
-                        # param.data.untyped_storage().resize_(0)
+                        param.data.untyped_storage().resize_(0)
                         if param.grad is not None:
                             cpu_model_param=dict(cpu_model.named_parameters())[name]
                             # double_grad=param.grad.to(dtype=torch.float32,device='cpu').detach()
                             # #double_grad.div_(1024)
                             # cpu_model_param.grad=torch.empty_like(double_grad,device='cpu').copy_(double_grad)
                             cpu_model_param.grad = torch.empty_like(param.grad, device='cpu', dtype=torch.float32).copy_(param.grad)
-                            # #param.grad.untyped_storage().resize_(0)
+                            param.grad.untyped_storage().resize_(0)
                             param.grad=None
                 model=None
     offload_stream.synchronize()

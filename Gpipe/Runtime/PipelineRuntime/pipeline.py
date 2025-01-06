@@ -98,9 +98,6 @@ class Pipeline():
     # 3.最后一个stage需要从上个stage那里拿到计算结果，前向计算
 
     def forward_first(self,my_stage_id:int,target_stage_id:int,chunk_id:int):
-        # clear module on gpu
-        if chunk_id==0:
-            self.local_module_list=[]
         # get data
         input_data=self.get_data()
         # embedding layer
@@ -208,6 +205,9 @@ class Pipeline():
     下面写的函数都是stage完整行为中可能用到的片段操作
     '''
     def forward_compute(self,input_tensor:torch.tensor,my_stage_id:int,chunk_id:int): 
+        # clear module on gpu
+        if my_stage_id//self.world_size==0 and chunk_id==0:
+            self.local_module_list=[]
         # load module
         if chunk_id==0:
             #loal module
@@ -255,10 +255,7 @@ class Pipeline():
                     torch.autograd.backward(activation,grad_tensors=accu_grad)
             self.compute_event.record()
 
-        # offload model
-        torch.cuda.synchronize()
-        if accu_grad is None and chunk_id==0:
-            print(f"output {output}")
+        # offload model   
         if chunk_id==self.num_chunks-1:
             self.compute_event.wait()
             self.OffloadThreadManager.submit_task(offload,self.local_module_list[my_stage_id//self.world_size],self.module_list[my_stage_id],self.offload_stream)
@@ -266,6 +263,8 @@ class Pipeline():
 
         
         self.compute_event.wait()
+        if accu_grad is None and chunk_id==0:
+            print(f"output {output}")
         return 
 
 

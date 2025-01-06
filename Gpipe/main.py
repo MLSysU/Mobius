@@ -125,16 +125,16 @@ if __name__ =="__main__":
             torch.profiler.ProfilerActivity.CUDA
         ],
         schedule=torch.profiler.schedule(  
-            wait=1, 
-            warmup=2,  # 接下来的 2 步为 warm-up
+            wait=2, 
+            warmup=3,  # 接下来的 2 步为 warm-up
             active=1   # 随后 1 步记录 profiling 数据
         ),
         record_shapes=True,       # 记录张量形状
         with_stack=True,          # 记录调用堆栈
         on_trace_ready=torch.profiler.tensorboard_trace_handler('./zero_log')  # 保存日志以供 TensorBoard 使用
     ) as prof:
-        for step in range(5):   
-            if step==4:
+        for step in range(6):   
+            if step==5:
                 num_iterations=args.num_iterations
             else:
                 num_iterations=2
@@ -151,7 +151,7 @@ if __name__ =="__main__":
                 start_step_time=time.time()
                 pipeline.optimizer.step()
                 end_step_time=time.time()
-                # torch.cuda.empty_cache()
+                torch.cuda.empty_cache()
                 if global_rank==0:
                     training_time+=end_time-start_time
                     with open(args.save_results,'a') as f:
