@@ -27,7 +27,7 @@ if __name__ =="__main__":
     parser=argparse.ArgumentParser()
     parser.add_argument('--batch_size',default=64,type=int,help='batch size')
     parser.add_argument('--num_chunks',default=4,type=int,help='M, namely number of micro batches')
-    parser.add_argument('--seq_length', default=256, type=int, help='sequence length, should not be changed')
+    parser.add_argument('--seq_length', default=128, type=int, help='sequence length, should not be changed')
     parser.add_argument('--embedding_dim', default=4096, type=int, help='embedding dimension in a Transformer layer, 4096 for Llama-2-7b')
     parser.add_argument('--ff_dim', default=4096, type=int, help='dimension in a FeedForward layer')
     parser.add_argument('--num_iterations', default=2, type=int, help='number of iterations, namely number of batches')
@@ -62,6 +62,7 @@ if __name__ =="__main__":
             print("batch_size = {}".format(args.batch_size),file=f)
             print("num_layers = {}".format(args.num_layers),file=f)
             print("num_stages = {}".format(args.num_stages),file=f)
+            print("seq_length = {}".format(args.seq_length),file=f)
             print("use_prefetch = {}".format(args.use_prefetch),file=f)
             print("use_offload = {}".format(args.use_offload),file=f)
 
@@ -98,7 +99,7 @@ if __name__ =="__main__":
 
     # Generate action_list for every GPU.
     action_list=generate_action_list(world_size=world_size,num_stages=args.num_stages,num_chunks=args.num_chunks)[global_rank]
-    # print('rank = '+str(global_rank)+'action_list = '+str(action_list))
+    print('rank = '+str(global_rank)+'action_list = '+str(action_list))
     
     # Generate model shard for every stage.
     module_list=generate_module(args,config,layers_list)
@@ -131,7 +132,7 @@ if __name__ =="__main__":
         ),
         record_shapes=True,       # 记录张量形状
         with_stack=True,          # 记录调用堆栈
-        on_trace_ready=torch.profiler.tensorboard_trace_handler('./zero_log')  # 保存日志以供 TensorBoard 使用
+        on_trace_ready=torch.profiler.tensorboard_trace_handler('./tmp_log')  # 保存日志以供 TensorBoard 使用
     ) as prof:
         for step in range(6):   
             if step==5:
@@ -140,7 +141,7 @@ if __name__ =="__main__":
                 num_iterations=2
             # pipeline execution
             training_time=0
-            for i in range(num_iterations):
+            for i in range(args.num_iterations):
                 start_time=time.time()
                 pipeline.optimizer.zero_grad()
                 pipeline.run_pipeline(action_list)
