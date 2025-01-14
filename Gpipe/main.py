@@ -90,22 +90,45 @@ if __name__ =="__main__":
 
     torch.cuda.synchronize()
 
-    # pipeline execution
-    training_time=0
-    for i in range(args.num_iterations):
-        start_time=time.time()
-        pipeline.optimizer.zero_grad()
-        pipeline.run_pipeline(action_list)
-        dist.barrier()
-        torch.cuda.synchronize()
-        end_time=time.time()  
-        training_time+=end_time-start_time
-        torch.cuda.empty_cache()
-        # 目前模型参数都在GPU里面
-        pipeline.optimizer.step()
-        if global_rank==0:
-            print(f"--------------- finish training step {i}")
-            print(training_time)
+    with torch.profiler.profile(
+        activities=[
+            torch.profiler.ProfilerActivity.CPU,
+            torch.profiler.ProfilerActivity.CUDA
+        ],
+        schedule=torch.profiler.schedule(  
+            wait=2, 
+            warmup=3,  # 接下来的 2 步为 warm-up
+            active=1   # 随后 1 步记录 profiling 数据
+        ),
+        record_shapes=True,       # 记录张量形状
+        with_stack=True,          # 记录调用堆栈
+        on_trace_ready=torch.profiler.tensorboard_trace_handler('./tmp_log')  # 保存日志以供 TensorBoard 使用
+    ) as prof:
+        for step in range(6):   
+            if step==5:
+                num_iterations=args.num_iterations
+            else:
+                num_iterations=2
+            # pipeline execution
+            training_time=0
+            for i in range(num_iterations):
+                start_time=time.time()
+                pipeline.optimizer.zero_grad()
+                pipeline.run_pipeline(action_list)
+                dist.barrier()
+                torch.cuda.synchronize()
+                end_time=time.time()  
+                training_time+=end_time-start_time
+                # torch.cuda.empty_cache()
+                # 目前模型参数都在GPU里面
+                pipeline.optimizer.step()
+                if global_rank==0:
+                    print(f"--------------- finish training step {i}")
+                    print(training_time)
+            pipeline=Pipeline(args,module_list,world_size,global_rank,local_rank,embedding_layer,train_batches,norm_layer,lm_head)
+            prof.step() 
+
+    print(prof.key_averages().table(sort_by="cuda_memory_usage", row_limit=10))
 
  
     torch.cuda.synchronize()
