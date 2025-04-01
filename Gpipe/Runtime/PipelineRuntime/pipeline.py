@@ -236,9 +236,11 @@ class Pipeline():
                         self.load_event.record()
 
             # prefetch
+            '''
             if my_stage_id+self.world_size<self.num_stages:
                 self.PrefetchThreadManager.submit_task(swap,self.module_list[my_stage_id+self.world_size],self.device,self.local_module_list,self.load_stream)
-  
+            '''
+
         # compute
         self.load_event.wait()
         activation=self.module(input_tensor)
@@ -256,11 +258,9 @@ class Pipeline():
         with torch.cuda.stream(self.compute_stream):
             with torch.profiler.record_function("model_backward"):
                 if accu_grad is None:
-                    print(f"backward compute {my_stage_id} {chunk_id}")
                     torch.cuda.default_stream().synchronize() # 等待前向传播计算完成
-                    print(f"backward compute {my_stage_id} {chunk_id}")
                     output=self.norm_layer(activation)
-                    logits=self.lm_head(output[:, -32:, :])
+                    logits=self.lm_head(output[:, -1*self.seq_length//4:, :])
                     logits = logits.view(-1, logits.size(-1))
                     correct_result=self.train_batches[self.iteration*self.num_chunks+chunk_id]["labels"].to(self.device)
                     correct_result=correct_result.view(-1)
