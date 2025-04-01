@@ -74,7 +74,7 @@ class Pipeline():
             module_parameter=list(module.parameters())  # parameters()是nn.Module自带的函数，返回一个生成器，可以迭代调用出模型每一层的参数大小
             parameters+=module_parameter
             self.total_parameters+=sum(p.numel() for p in module_parameter)
-        return torch.optim.Adam(parameters,lr=0.0001,weight_decay=1e-3)
+        return torch.optim.Adam(parameters,lr=1e-07,weight_decay=1e-3)
 
     def parse_action(self,action:str) ->tuple:
         """
@@ -345,6 +345,28 @@ class Pipeline():
                 self.PrefetchThreadManager.wait_for_task_completion()
             self.load_event.record()
 
+            
+        with torch.cuda.stream(self.compute_stream):
+            with torch.profiler.record_function("model_backward"):
+                if accu_grad is None:
+                    output=self.norm_layer(activation)
+                    logits=self.lm_head(output[:, -1*self.seq_length//4 :, :])
+                    logits = logits.view(-1, logits.size(-1))
+                    correct_result=self.train_batches[self.iteration*self.num_chunks+chunk_id]["labels"].to(self.device)
+                    correct_result=correct_result.view(-1)
+                    self.load_event.wait()
+                    torch.autograd.backward(F.cross_entropy(logits, correct_result))
+                    self.compute_event.record()
+                    # torch.autograd.backward(activation.mean)
+                    if chunk_id==0:
+                        print("pipe output",output)
+                else:
+                    self.load_event.wait()
+                    torch.autograd.backward(activation,grad_tensors=accu_grad)
+                    self.compute_event.record()
+
+
+        if chunk_id==0:
             # prefetch model
             if self.use_prefetch:
                 if my_stage_id-self.world_size>=0:
@@ -359,27 +381,6 @@ class Pipeline():
                         self.PrefetchThreadManager.submit_task(load,last_module,self.module_list[last_stage_id],self.load_stream)
                         # load(last_module,self.module_list[last_stage_id],self.load_stream)
                         self.local_module_list[last_stage_id//self.world_size][1]='gpu'
-        with torch.cuda.stream(self.compute_stream):
-            with torch.profiler.record_function("model_backward"):
-                if accu_grad is None:
-                    output=self.norm_layer(activation)
-                    logits=self.lm_head(output[:, -32 :, :])
-                    logits = logits.view(-1, logits.size(-1))
-                    correct_result=self.train_batches[self.iteration*self.num_chunks+chunk_id]["labels"].to(self.device)
-                    correct_result=correct_result.view(-1)
-                    self.load_event.wait()
-                    torch.autograd.backward(F.cross_entropy(logits, correct_result))
-                    self.compute_event.record()
-                    # torch.autograd.backward(activation.mean)
-                    if chunk_id==0:
-                        print("pipe output",output)
-                        print("this")
-                else:
-                    self.load_event.wait()
-                    torch.autograd.backward(activation,grad_tensors=accu_grad)
-                    self.compute_event.record()
-
-
         
         # offload model
         with torch.cuda.stream(self.offload_stream):
