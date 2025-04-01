@@ -34,7 +34,7 @@ if __name__ =="__main__":
     parser.add_argument('--num_stages',default=8,type=int,help='number of stages')
     parser.add_argument('--num_layers',default=32,type=int,help='number of layers')
     parser.add_argument('--num_heads',default=32,type=int,help='number of attention heads in a layer')
-    parser.add_argument('--model',default='llama-2-7b',type=str,help='specify the model name')
+    parser.add_argument('--model',default='llama-2-7b-hf',type=str,help='specify the model name')
     parser.add_argument('--dataset',default='xsum',type=str,help='specify the dataset name')
     parser.add_argument('--save_results',default='test_result.txt',type=str,help='file to save the results')
     parser.add_argument('--use_prefetch', action='store_true', help='Enable prefetch trick')
@@ -65,36 +65,56 @@ if __name__ =="__main__":
             print("use_prefetch = {}".format(args.use_prefetch),file=f)
             print("use_offload = {}".format(args.use_offload),file=f)
 
-    '''
-    Import model through hugging face. Model is on CPU by default. 
-    When running this file on your machine, please annotate line62-line70 && anti-annotate line52-line60.
-    '''
+    
+    # Import model through local cache files if it has been downloaded. Otherwise, download it from hugging-face. Model is on CPU by default.
+    if args.model=='llama-2-7b-hf':
+        model_path='/data/home/liuhuimin/mobius/Mobius/transformer/model_cache/models--meta-llama--Llama-2-7b-hf/snapshots/first_cache'
+        hf_repo_id = 'meta-llama/Llama-2-7b-hf'
+    elif args.model=='llama-2-13b-hf':
+        model_path='/data/home/liuhuimin/mobius/Mobius/transformer/model_cache/models--meta-llama--Llama-2-13b-hf/snapshots/first_cache'
+        hf_repo_id = 'meta-llama/Llama-2-13b-hf'
+    else:
+        raise ValueError(f"Unsupported model: {args.model}")
 
-    # login(
-    #     token="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",
-    #     add_to_git_credential=True
-    # )
-    # model_path='meta-llama/Llama-2-7b-hf'
-    # model=AutoModelForCausalLM.from_pretrained(model_path,cache_dir='transformer/model_cache')
-    # tokenizer=AutoTokenizer.from_pretrained(model_path)
-    # embedding_layer=model.model.embed_tokens
-    # layers_list=list(model.model.layers)
+    # Check if the model is in the local cache
+    if not os.path.exists(model_path):
+        print(f"Local model cache not found at {model_path}, downloading from Hugging Face Hub...")
 
-    # Import model through local cache files. Model is on CPU by default.
-    model_path='/data/home/liuhuimin/.cache/huggingface/hub/models--meta-llama--Llama-2-7b-hf/snapshots/first_cache'
-    model=LlamaForCausalLM.from_pretrained(model_path)
+        login(
+            token="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",
+            add_to_git_credential=True
+        )
+
+        try:
+            model = LlamaForCausalLM.from_pretrained(
+                hf_repo_id,
+                cache_dir=os.path.dirname(os.path.dirname(model_path)) # 保持缓存目录结构
+            )
+            tokenizer = AutoTokenizer.from_pretrained(
+                hf_repo_id,
+                cache_dir=os.path.dirname(os.path.dirname(model_path)) # 保持缓存目录结构
+            )
+            print(f"Model downloaded and cached at: {model_path}")
+        except Exception as e:
+            print(f"Failed to download model: {str(e)}")
+            raise
+    else:
+        print(f"Using cached model at: {model_path}")
+        model = LlamaForCausalLM.from_pretrained(model_path)
+        tokenizer=AutoTokenizer.from_pretrained(model_path)
+
     config=model.config
-    tokenizer=AutoTokenizer.from_pretrained(model_path)
     embedding_layer=model.model.embed_tokens
     norm_layer=model.model.norm
     lm_head=model.lm_head
     layers_list=list(model.model.layers)
+   
 
     # load dataset and preprocess it.
     train_batches=None
     if global_rank==0 or global_rank==world_size-1:
         if args.dataset=='xsum':
-            train_batches=preprocess_xsum(tokenizer,args.batch_size//args.num_chunks,model)
+            train_batches=preprocess_xsum(tokenizer,args.batch_size//args.num_chunks,model,args)
 
     # Generate action_list for every GPU.
     action_list=generate_action_list(world_size=world_size,num_stages=args.num_stages,num_chunks=args.num_chunks)[global_rank]

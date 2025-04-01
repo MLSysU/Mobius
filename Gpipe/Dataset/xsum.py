@@ -3,7 +3,7 @@ from datasets import load_dataset
 from torch.utils.data import DataLoader
 
 
-def preprocess_xsum(tokenizer,batch_size,model):
+def preprocess_xsum(tokenizer,batch_size,model,args):
     if tokenizer.pad_token is None:
         tokenizer.pad_token=tokenizer.eos_token
 
@@ -19,7 +19,7 @@ def preprocess_xsum(tokenizer,batch_size,model):
             documents,
             truncation=True,
             padding="max_length",
-            max_length=128,  
+            max_length=args.seq_length,  
             return_tensors="pt"
         )
 
@@ -27,7 +27,7 @@ def preprocess_xsum(tokenizer,batch_size,model):
             summaries,
             truncation=True,
             padding="max_length",
-            max_length=32,  
+            max_length=args.seq_length//4,  
             return_tensors="pt"
         )
 
