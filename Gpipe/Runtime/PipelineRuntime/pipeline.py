@@ -116,7 +116,6 @@ class Pipeline():
         return 
 
     def forward_middle(self,source_stage_id:int,my_stage_id:int,target_stage_id:int,chunk_id:int):
-        print(f"forward {my_stage_id} {chunk_id}")
         # receive data
         source_rank=source_stage_id%self.world_size
         self.receive_activation(source_rank)
@@ -131,11 +130,9 @@ class Pipeline():
         # send activation
         target_rank=target_stage_id%self.world_size
         self.send_activation(target_rank,result_tensor)
-        print(f"forward finished {my_stage_id} {chunk_id}")
         return
     
     def forward_last(self,source_stage_id:int,my_stage_id:int,chunk_id:int):
-        print(f"forward {my_stage_id} {chunk_id}")
         # receive data
         source_rank=source_stage_id%self.world_size
         self.receive_activation(source_rank)
@@ -147,7 +144,6 @@ class Pipeline():
         # forward compute
         result_tensor=self.forward_compute(input_data,my_stage_id,chunk_id)
         self.activation_list[my_stage_id].append(result_tensor)
-        print(f"forward finished {my_stage_id} {chunk_id}")
         return 
 
 
@@ -173,7 +169,6 @@ class Pipeline():
 
     def backward_middle(self,source_stage_id:int,my_stage_id:int,target_stage_id:int,chunk_id:int):
         # receive data
-        print(f"backward {my_stage_id} {chunk_id}")
         source_rank=source_stage_id%self.world_size
         self.receive_grad(source_rank)
         if self.last_receive is not None:
@@ -189,11 +184,9 @@ class Pipeline():
         self.send_grad(input_tensor.grad,target_rank)
         # if my_stage_id==1:
         #     print("send input grad ",my_stage_id,input_tensor.grad.shape,input_tensor.grad)
-        print(f"backward finished {my_stage_id} {chunk_id}")
         return 
 
     def backward_last(self,my_stage_id:int,target_stage_id:int,chunk_id:int):
-        print(f"backward {my_stage_id} {chunk_id}")
         if chunk_id==0:
             self.iteration+=1
         # compute the gradient of input
@@ -205,10 +198,8 @@ class Pipeline():
         target_rank=target_stage_id%self.world_size
         self.send_grad(input_tensor.grad,target_rank)
         # print("input grad ",my_stage_id,input_tensor.grad)
-        print(f"backward finished {my_stage_id} {chunk_id}")
         return
 
-  
 
     '''
     下面写的函数都是stage完整行为中可能用到的片段操作
@@ -277,8 +268,6 @@ class Pipeline():
             # offload(self.local_module_list[my_stage_id//self.world_size],self.module_list[my_stage_id],self.offload_stream)
 
         torch.cuda.current_stream().synchronize()
-        if accu_grad is None and chunk_id==0:
-            print(f"output {logits}")
         return 
 
 

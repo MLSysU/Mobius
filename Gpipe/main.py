@@ -34,7 +34,7 @@ if __name__ =="__main__":
     parser.add_argument('--num_stages',default=8,type=int,help='number of stages')
     parser.add_argument('--num_layers',default=32,type=int,help='number of layers')
     parser.add_argument('--num_heads',default=32,type=int,help='number of attention heads in a layer')
-    parser.add_argument('--model',default='llama-2-7b',type=str,help='specify the model name')
+    parser.add_argument('--model',default='llama-2-7b-hf',type=str,help='specify the model name')
     parser.add_argument('--dataset',default='xsum',type=str,help='specify the dataset name')
     parser.add_argument('--save_results',default='test_result.txt',type=str,help='file to save the results')
     parser.add_argument('--use_prefetch', action='store_true', help='Enable prefetch trick')
@@ -117,7 +117,6 @@ if __name__ =="__main__":
 
     # Generate action_list for every GPU.
     action_list=generate_action_list(world_size=world_size,num_stages=args.num_stages,num_chunks=args.num_chunks)[global_rank]
-    print('rank = '+str(global_rank)+'action_list = '+str(action_list))
     
     # Generate model shard for every stage.
     module_list=generate_module(args,config,layers_list)
