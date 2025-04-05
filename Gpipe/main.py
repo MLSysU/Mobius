@@ -63,7 +63,7 @@ if __name__ =="__main__":
     # layers_list=list(model.model.layers)
 
     # Import model through local cache files. Model is on CPU by default.
-    model_path='/data/home/liuhuimin/.cache/huggingface/hub/models--meta-llama--Llama-2-7b-hf/snapshots/first_cache'
+    model_path='/data/home/liuhuimin/mobius/Mobius/transformer/model_cache/models--meta-llama--Llama-2-7b-hf/snapshots/first_cache'
     model=LlamaForCausalLM.from_pretrained(model_path)
     config=model.config
     tokenizer=AutoTokenizer.from_pretrained(model_path)
