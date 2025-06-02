@@ -1,0 +1,5 @@
+setup.py
+parallel.egg-info/PKG-INFO
+parallel.egg-info/SOURCES.txt
+parallel.egg-info/dependency_links.txt
+parallel.egg-info/top_level.txt
