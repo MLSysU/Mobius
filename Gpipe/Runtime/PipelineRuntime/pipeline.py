@@ -56,6 +56,9 @@ class Pipeline():
         self.offload_event=torch.cuda.Event()
         self.OffloadThreadManager=OffloadThreadManager
         self.PrefetchThreadManager=PrefetchThreadManager
+        self.use_prefetch=args.use_prefetch
+        self.use_offload=args.use_offload
+
 
 
     def construct_optimizer(self):
@@ -116,7 +119,6 @@ class Pipeline():
         return 
 
     def forward_middle(self,source_stage_id:int,my_stage_id:int,target_stage_id:int,chunk_id:int):
-        print(f"forward {my_stage_id} {chunk_id}")
         # receive data
         source_rank=source_stage_id%self.world_size
         self.receive_activation(source_rank)
@@ -131,11 +133,9 @@ class Pipeline():
         # send activation
         target_rank=target_stage_id%self.world_size
         self.send_activation(target_rank,result_tensor)
-        print(f"forward finished {my_stage_id} {chunk_id}")
         return
     
     def forward_last(self,source_stage_id:int,my_stage_id:int,chunk_id:int):
-        print(f"forward {my_stage_id} {chunk_id}")
         # receive data
         source_rank=source_stage_id%self.world_size
         self.receive_activation(source_rank)
@@ -147,7 +147,6 @@ class Pipeline():
         # forward compute
         result_tensor=self.forward_compute(input_data,my_stage_id,chunk_id)
         self.activation_list[my_stage_id].append(result_tensor)
-        print(f"forward finished {my_stage_id} {chunk_id}")
         return 
 
 
@@ -173,7 +172,6 @@ class Pipeline():
 
     def backward_middle(self,source_stage_id:int,my_stage_id:int,target_stage_id:int,chunk_id:int):
         # receive data
-        print(f"backward {my_stage_id} {chunk_id}")
         source_rank=source_stage_id%self.world_size
         self.receive_grad(source_rank)
         if self.last_receive is not None:
@@ -189,11 +187,9 @@ class Pipeline():
         self.send_grad(input_tensor.grad,target_rank)
         # if my_stage_id==1:
         #     print("send input grad ",my_stage_id,input_tensor.grad.shape,input_tensor.grad)
-        print(f"backward finished {my_stage_id} {chunk_id}")
         return 
 
     def backward_last(self,my_stage_id:int,target_stage_id:int,chunk_id:int):
-        print(f"backward {my_stage_id} {chunk_id}")
         if chunk_id==0:
             self.iteration+=1
         # compute the gradient of input
@@ -205,7 +201,6 @@ class Pipeline():
         target_rank=target_stage_id%self.world_size
         self.send_grad(input_tensor.grad,target_rank)
         # print("input grad ",my_stage_id,input_tensor.grad)
-        print(f"backward finished {my_stage_id} {chunk_id}")
         return
 
   
@@ -223,7 +218,7 @@ class Pipeline():
             with torch.cuda.stream(self.load_stream):
                 with torch.profiler.record_function("model_load"):
                     # has been prefetched
-                    if my_stage_id-self.world_size>=0:
+                    if my_stage_id-self.world_size>=0 and self.use_prefetch:
                         while len(self.local_module_list)<=my_stage_id//self.world_size:
                             self.PrefetchThreadManager.wait_for_task_completion()
                         self.module=self.local_module_list[my_stage_id//self.world_size]
@@ -236,8 +231,9 @@ class Pipeline():
                         self.load_event.record()
 
             # prefetch
-            if my_stage_id+self.world_size<self.num_stages:
-                self.PrefetchThreadManager.submit_task(swap,self.module_list[my_stage_id+self.world_size],self.device,self.local_module_list,self.load_stream)
+            if self.use_prefetch:
+                if my_stage_id+self.world_size<self.num_stages:
+                    self.PrefetchThreadManager.submit_task(swap,self.module_list[my_stage_id+self.world_size],self.device,self.local_module_list,self.load_stream)
   
         # compute
         self.load_event.wait()
@@ -256,11 +252,9 @@ class Pipeline():
         with torch.cuda.stream(self.compute_stream):
             with torch.profiler.record_function("model_backward"):
                 if accu_grad is None:
-                    print(f"backward compute {my_stage_id} {chunk_id}")
                     torch.cuda.default_stream().synchronize() # 等待前向传播计算完成
-                    print(f"backward compute {my_stage_id} {chunk_id}")
                     output=self.norm_layer(activation)
-                    logits=self.lm_head(output[:, -32:, :])
+                    logits=self.lm_head(output[:, -1*self.seq_length//4:, :])
                     logits = logits.view(-1, logits.size(-1))
                     correct_result=self.train_batches[self.iteration*self.num_chunks+chunk_id]["labels"].to(self.device)
                     correct_result=correct_result.view(-1)

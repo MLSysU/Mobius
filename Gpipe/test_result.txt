@@ -7525,108 +7525,290 @@ cuda 0: Peak memory 28.12 GB ; Persistent memory 0.78 GB
 |===========================================================================|
 
 training time = 44.75517535209656
-num_iterations = 4
+
+
+
+num_iterations = 7
 batch_size = 64
 num_layers = 32
-num_stages = 8
-seq_length = 256
-use_prefetch = False
-use_offload = False
-num_iterations = 4
-batch_size = 64
-num_layers = 32
-num_stages = 8
+num_stages = 4
 seq_length = 128
 use_prefetch = False
 use_offload = False
-num_iterations = 4
+model = llama-2-7b-hf
+step time = 4.923812389373779
+--------------- finish training step 0
+0 15.142287731170654
+step time = 3.6543562412261963
+--------------- finish training step 1
+1 7.259276866912842
+step time = 3.786196231842041
+--------------- finish training step 2
+2 6.629299640655518
+step time = 3.4112701416015625
+--------------- finish training step 3
+3 6.982846260070801
+step time = 3.4211041927337646
+--------------- finish training step 4
+4 8.107499837875366
+step time = 3.5781760215759277
+--------------- finish training step 5
+5 7.516512155532837
+step time = 3.56807017326355
+--------------- finish training step 6
+6 7.234276294708252
+step time = 4.614667654037476
+--------------- finish training step 0
+0 8.898880004882812
+step time = 3.569917917251587
+--------------- finish training step 1
+1 6.807225942611694
+step time = 3.717672348022461
+--------------- finish training step 2
+2 7.107373952865601
+step time = 3.718479633331299
+--------------- finish training step 3
+3 6.98426365852356
+step time = 3.5965423583984375
+--------------- finish training step 4
+4 6.439040184020996
+step time = 3.7944939136505127
+--------------- finish training step 5
+5 7.167771100997925
+step time = 3.6945343017578125
+--------------- finish training step 6
+6 7.293887615203857
+step time = 4.753055572509766
+--------------- finish training step 0
+0 8.048718452453613
+step time = 3.851496458053589
+--------------- finish training step 1
+1 7.244755029678345
+step time = 3.62492299079895
+--------------- finish training step 2
+2 6.682434320449829
+step time = 3.69095778465271
+--------------- finish training step 3
+3 7.81618595123291
+step time = 3.894069194793701
+--------------- finish training step 4
+4 6.7276036739349365
+step time = 3.5991768836975098
+--------------- finish training step 5
+5 6.966345310211182
+num_iterations = 7
 batch_size = 64
 num_layers = 32
-num_stages = 8
+num_stages = 4
 seq_length = 128
 use_prefetch = False
 use_offload = False
-num_iterations = 4
+model = llama-2-7b-hf
+num_iterations = 7
 batch_size = 64
 num_layers = 32
-num_stages = 8
+num_stages = 4
 seq_length = 128
 use_prefetch = False
 use_offload = False
-num_iterations = 4
+model = llama-2-7b-hf
+step time = 10.127281665802002
+--------------- finish training step 0
+0 31.265461206436157
+step time = 6.828937768936157
+--------------- finish training step 1
+1 13.800288200378418
+step time = 7.600196123123169
+--------------- finish training step 2
+2 15.356899499893188
+step time = 8.113246202468872
+--------------- finish training step 3
+3 16.303060293197632
+step time = 7.6628098487854
+--------------- finish training step 4
+4 14.569896459579468
+step time = 7.7805726528167725
+--------------- finish training step 5
+5 13.68280291557312
+step time = 7.6437623500823975
+--------------- finish training step 6
+6 13.487731695175171
+cuda 0: Peak memory 10.84 GB ; Persistent memory 1.66 GB
+|===========================================================================|
+|                  PyTorch CUDA memory summary, device ID 0                 |
+|---------------------------------------------------------------------------|
+|            CUDA OOMs: 0            |        cudaMalloc retries: 0         |
+|===========================================================================|
+|        Metric         | Cur Usage  | Peak Usage | Tot Alloc  | Tot Freed  |
+|---------------------------------------------------------------------------|
+| Allocated memory      |   1702 MiB |  11096 MiB | 345007 MiB | 343305 MiB |
+|---------------------------------------------------------------------------|
+| Active memory         |   1702 MiB |  11096 MiB | 345007 MiB | 343305 MiB |
+|---------------------------------------------------------------------------|
+| Requested memory      |   1702 MiB |  11036 MiB | 344111 MiB | 342409 MiB |
+|---------------------------------------------------------------------------|
+| GPU reserved memory   |   1724 MiB |  14102 MiB |  88386 MiB |  86662 MiB |
+|---------------------------------------------------------------------------|
+| Non-releasable memory |  22197 KiB | 357747 KiB |  64614 MiB |  64592 MiB |
+|---------------------------------------------------------------------------|
+| Allocations           |      81    |     449    |   14860    |   14779    |
+|---------------------------------------------------------------------------|
+| Active allocs         |      81    |     449    |   14860    |   14779    |
+|---------------------------------------------------------------------------|
+| GPU reserved segments |      68    |     387    |    2297    |    2229    |
+|---------------------------------------------------------------------------|
+| Non-releasable allocs |       9    |      33    |    3199    |    3190    |
+|---------------------------------------------------------------------------|
+| Oversize allocations  |       0    |       0    |       0    |       0    |
+|---------------------------------------------------------------------------|
+| Oversize GPU segments |       0    |       0    |       0    |       0    |
+|===========================================================================|
+
+training time = 60.09019637107849
+cuda 3: Peak memory 10.03 GB ; Persistent memory 0.56 GB
+cuda 2: Peak memory 9.60 GB ; Persistent memory 0.30 GB
+cuda 1: Peak memory 9.60 GB ; Persistent memory 0.30 GB
+num_iterations = 7
 batch_size = 64
 num_layers = 32
-num_stages = 8
+num_stages = 4
 seq_length = 128
 use_prefetch = False
 use_offload = False
-num_iterations = 4
-batch_size = 64
+model = llama-2-13b-hf
+num_iterations = 7
+batch_size = 72
 num_layers = 32
-num_stages = 8
+num_stages = 4
 seq_length = 128
 use_prefetch = False
 use_offload = False
-num_iterations = 4
+model = llama-2-13b-hf
+num_iterations = 7
 batch_size = 64
 num_layers = 32
-num_stages = 8
+num_stages = 4
 seq_length = 128
 use_prefetch = False
 use_offload = False
-num_iterations = 4
-batch_size = 64
+model = llama-2-13b-hf
+step time = 48.34865593910217
+--------------- finish training step 0
+0 114.69117498397827
+step time = 42.987688064575195
+--------------- finish training step 1
+1 70.53219628334045
+step time = 41.32096195220947
+--------------- finish training step 2
+2 68.58498692512512
+step time = 43.600208044052124
+--------------- finish training step 3
+3 70.46859765052795
+step time = 42.18589472770691
+--------------- finish training step 4
+4 67.71927332878113
+step time = 42.31153440475464
+--------------- finish training step 5
+5 67.6163101196289
+cuda 3: Peak memory 30.56 GB ; Persistent memory 0.70 GB
+cuda 2: Peak memory 30.15 GB ; Persistent memory 0.38 GB
+step time = 41.10163354873657
+--------------- finish training step 6
+6 67.75171828269958
+cuda 0: Peak memory 31.70 GB ; Persistent memory 2.08 GB
+|===========================================================================|
+|                  PyTorch CUDA memory summary, device ID 0                 |
+|---------------------------------------------------------------------------|
+|            CUDA OOMs: 0            |        cudaMalloc retries: 0         |
+|===========================================================================|
+|        Metric         | Cur Usage  | Peak Usage | Tot Alloc  | Tot Freed  |
+|---------------------------------------------------------------------------|
+| Allocated memory      |   2133 MiB |  32458 MiB |   1086 GiB |   1084 GiB |
+|---------------------------------------------------------------------------|
+| Active memory         |   2133 MiB |  32458 MiB |   1086 GiB |   1084 GiB |
+|---------------------------------------------------------------------------|
+| Requested memory      |   2133 MiB |  32427 MiB |   1086 GiB |   1084 GiB |
+|---------------------------------------------------------------------------|
+| GPU reserved memory   |   2148 MiB |  42874 MiB | 287318 MiB | 285170 MiB |
+|---------------------------------------------------------------------------|
+| Non-releasable memory |  14512 KiB | 558880 KiB | 180292 MiB | 180278 MiB |
+|---------------------------------------------------------------------------|
+| Allocations           |      99    |    1019    |   36868    |   36769    |
+|---------------------------------------------------------------------------|
+| Active allocs         |      99    |    1019    |   36868    |   36769    |
+|---------------------------------------------------------------------------|
+| GPU reserved segments |      74    |     869    |    5630    |    5556    |
+|---------------------------------------------------------------------------|
+| Non-releasable allocs |      18    |      72    |    5613    |    5595    |
+|---------------------------------------------------------------------------|
+| Oversize allocations  |       0    |       0    |       0    |       0    |
+|---------------------------------------------------------------------------|
+| Oversize GPU segments |       0    |       0    |       0    |       0    |
+|===========================================================================|
+
+training time = 216.73015880584717
+cuda 1: Peak memory 30.15 GB ; Persistent memory 0.38 GB
+num_iterations = 7
+batch_size = 72
 num_layers = 32
-num_stages = 8
+num_stages = 4
 seq_length = 128
 use_prefetch = False
 use_offload = False
-num_iterations = 4
-batch_size = 64
-num_layers = 32
-num_stages = 8
-seq_length = 128
-use_prefetch = False
-use_offload = False
-num_iterations = 4
-batch_size = 64
-num_layers = 32
-num_stages = 8
-seq_length = 128
-use_prefetch = False
-use_offload = False
-num_iterations = 4
-batch_size = 64
-num_layers = 32
-num_stages = 8
-seq_length = 128
-use_prefetch = False
-use_offload = False
-num_iterations = 4
-batch_size = 64
-num_layers = 32
-num_stages = 8
-seq_length = 128
-use_prefetch = False
-use_offload = False
-num_iterations = 4
-batch_size = 64
-num_layers = 32
-num_stages = 8
-seq_length = 128
-use_prefetch = False
-use_offload = False
-num_iterations = 4
-batch_size = 64
-num_layers = 32
-num_stages = 8
-seq_length = 128
-use_prefetch = False
-use_offload = False
-num_iterations = 4
-batch_size = 64
-num_layers = 32
-num_stages = 8
-seq_length = 128
-use_prefetch = False
-use_offload = False
+model = llama-2-13b-hf
+step time = 54.53625535964966
+--------------- finish training step 0
+0 111.98203921318054
+step time = 44.89180874824524
+--------------- finish training step 1
+1 72.5795829296112
+step time = 45.88394021987915
+--------------- finish training step 2
+2 73.20989608764648
+step time = 43.58519792556763
+--------------- finish training step 3
+3 72.73018598556519
+step time = 49.93364095687866
+--------------- finish training step 4
+4 77.390793800354
+step time = 45.69229459762573
+--------------- finish training step 5
+5 72.26359224319458
+cuda 3: Peak memory 33.65 GB ; Persistent memory 0.71 GB
+cuda 1: Peak memory 33.17 GB ; Persistent memory 0.38 GB
+cuda 2: Peak memory 33.17 GB ; Persistent memory 0.38 GB
+step time = 44.47995114326477
+--------------- finish training step 6
+6 72.23983550071716
+cuda 0: Peak memory 34.83 GB ; Persistent memory 2.23 GB
+|===========================================================================|
+|                  PyTorch CUDA memory summary, device ID 0                 |
+|---------------------------------------------------------------------------|
+|            CUDA OOMs: 0            |        cudaMalloc retries: 7         |
+|===========================================================================|
+|        Metric         | Cur Usage  | Peak Usage | Tot Alloc  | Tot Freed  |
+|---------------------------------------------------------------------------|
+| Allocated memory      |   2278 MiB |  35669 MiB |   1190 GiB |   1187 GiB |
+|---------------------------------------------------------------------------|
+| Active memory         |   2278 MiB |  35669 MiB |   1190 GiB |   1187 GiB |
+|---------------------------------------------------------------------------|
+| Requested memory      |   2278 MiB |  35424 MiB |   1180 GiB |   1178 GiB |
+|---------------------------------------------------------------------------|
+| GPU reserved memory   |   2382 MiB |  45010 MiB | 316900 MiB | 314518 MiB |
+|---------------------------------------------------------------------------|
+| Non-releasable memory | 105640 KiB |   1410 MiB | 225921 MiB | 225818 MiB |
+|---------------------------------------------------------------------------|
+| Allocations           |      99    |    1019    |   36868    |   36769    |
+|---------------------------------------------------------------------------|
+| Active allocs         |      99    |    1019    |   36868    |   36769    |
+|---------------------------------------------------------------------------|
+| GPU reserved segments |      74    |     849    |    5674    |    5600    |
+|---------------------------------------------------------------------------|
+| Non-releasable allocs |      75    |     507    |   22087    |   22012    |
+|---------------------------------------------------------------------------|
+| Oversize allocations  |       0    |       0    |       0    |       0    |
+|---------------------------------------------------------------------------|
+| Oversize GPU segments |       0    |       0    |       0    |       0    |
+|===========================================================================|
+
+training time = 215.45027375221252

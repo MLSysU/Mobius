@@ -34,7 +34,7 @@ if __name__ =="__main__":
     parser.add_argument('--num_stages',default=8,type=int,help='number of stages')
     parser.add_argument('--num_layers',default=32,type=int,help='number of layers')
     parser.add_argument('--num_heads',default=32,type=int,help='number of attention heads in a layer')
-    parser.add_argument('--model',default='llama-2-7b',type=str,help='specify the model name')
+    parser.add_argument('--model',default='llama-2-7b-hf',type=str,help='specify the model name')
     parser.add_argument('--dataset',default='xsum',type=str,help='specify the dataset name')
     parser.add_argument('--save_results',default='test_result.txt',type=str,help='file to save the results')
     parser.add_argument('--use_prefetch', action='store_true', help='Enable prefetch trick')
@@ -65,41 +65,67 @@ if __name__ =="__main__":
             print("seq_length = {}".format(args.seq_length),file=f)
             print("use_prefetch = {}".format(args.use_prefetch),file=f)
             print("use_offload = {}".format(args.use_offload),file=f)
+            print("model = {}".format(args.model),file=f)
 
     '''
     Import model through hugging face. Model is on CPU by default. 
     When running this file on your machine, please annotate line62-line70 && anti-annotate line52-line60.
     '''
 
-    # login(
-    #     token="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",
-    #     add_to_git_credential=True
-    # )
-    # model_path='meta-llama/Llama-2-7b-hf'
-    # model=AutoModelForCausalLM.from_pretrained(model_path,cache_dir='transformer/model_cache')
-    # tokenizer=AutoTokenizer.from_pretrained(model_path)
-    # embedding_layer=model.model.embed_tokens
-    # layers_list=list(model.model.layers)
+    if args.model == 'llama-2-7b-hf':
+        model_path = '/data/home/liuhuimin/mobius/Mobius/transformer/model_cache/models--meta-llama--Llama-2-7b-hf/snapshots/first_cache'  # [title](https://blog.csdn.net/ly_twt/article/details/140589319)
+        hf_repo_id = 'meta-llama/Llama-2-7b-hf' 
+    elif args.model == 'llama-2-13b-hf':
+        model_path = '/data/home/liuhuimin/mobius/Mobius/transformer/model_cache/models--meta-llama--Llama-2-13b-hf/snapshots/first_cache'
+        hf_repo_id = 'meta-llama/Llama-2-13b-hf'
+    else:
+        raise ValueError(f"Unsupported model: {args.model}")
 
-    # Import model through local cache files. Model is on CPU by default.
-    model_path='/data/home/liuhuimin/.cache/huggingface/hub/models--meta-llama--Llama-2-7b-hf/snapshots/first_cache'
-    model=LlamaForCausalLM.from_pretrained(model_path)
-    config=model.config
-    tokenizer=AutoTokenizer.from_pretrained(model_path)
-    embedding_layer=model.model.embed_tokens
-    norm_layer=model.model.norm
-    lm_head=model.lm_head
-    layers_list=list(model.model.layers)
+    # 检查本地缓存是否存在
+    if not os.path.exists(model_path):
+        print(f"Local model cache not found at {model_path}, downloading from Hugging Face Hub...")
+        
+        # 需要先通过官方授权才能下载Llama-2模型 
+        login(
+            token="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",
+            add_to_git_credential=True
+        )
+        
+        try:
+            # 自动创建缓存目录结构 
+            model = LlamaForCausalLM.from_pretrained(
+                hf_repo_id,
+                cache_dir=os.path.dirname(os.path.dirname(model_path))  # 保持标准缓存结构
+            )
+            tokenizer = AutoTokenizer.from_pretrained(
+                hf_repo_id,
+                cache_dir=os.path.dirname(os.path.dirname(model_path))
+            )
+            print(f"Model downloaded and cached at: {model_path}")
+        except Exception as e:
+            print(f"下载失败: {str(e)} (建议检查huggingface访问权限和网络连接) [title](https://blog.csdn.net/qq_46127363/article/details/142216028)")
+            raise
+    else:
+        print(f"Using cached model at: {model_path}")
+        model = LlamaForCausalLM.from_pretrained(model_path)
+        tokenizer = AutoTokenizer.from_pretrained(model_path)
+
+    # 提取模型组件
+    config = model.config  
+    embedding_layer = model.model.embed_tokens
+    norm_layer = model.model.norm
+    lm_head = model.lm_head
+    layers_list = list(model.model.layers)
+
 
     # load dataset and preprocess it.
     train_batches=None
     if global_rank==0 or global_rank==world_size-1:
         if args.dataset=='xsum':
-            train_batches=preprocess_xsum(tokenizer,args.batch_size//args.num_chunks,model)
+            train_batches=preprocess_xsum(tokenizer,args.batch_size//args.num_chunks,model,args)
 
     # Generate action_list for every GPU.
     action_list=generate_action_list(world_size=world_size,num_stages=args.num_stages,num_chunks=args.num_chunks)[global_rank]
-    print('rank = '+str(global_rank)+'action_list = '+str(action_list))
     
     # Generate model shard for every stage.
     module_list=generate_module(args,config,layers_list)
@@ -120,57 +146,57 @@ if __name__ =="__main__":
     
 
     # 配置 profiler
-    with torch.profiler.profile(
-        activities=[
-            torch.profiler.ProfilerActivity.CPU,
-            torch.profiler.ProfilerActivity.CUDA
-        ],
-        schedule=torch.profiler.schedule(  
-            wait=2, 
-            warmup=3,  # 接下来的 2 步为 warm-up
-            active=1   # 随后 1 步记录 profiling 数据
-        ),
-        record_shapes=True,       # 记录张量形状
-        with_stack=True,          # 记录调用堆栈
-        on_trace_ready=torch.profiler.tensorboard_trace_handler('./tmp_log')  # 保存日志以供 TensorBoard 使用
-    ) as prof:
-        for step in range(6):   
-            if step==5:
-                num_iterations=args.num_iterations
-            else:
-                num_iterations=2
-            # pipeline execution
-            training_time=0
-            for i in range(args.num_iterations):
-                start_time=time.time()
-                pipeline.optimizer.zero_grad()
-                pipeline.run_pipeline(action_list)
-                dist.barrier()
-                OffloadThreadManager.wait_for_task_completion()
-                torch.cuda.synchronize()
-                end_time=time.time()
-                start_step_time=time.time()
-                pipeline.optimizer.step()
-                end_step_time=time.time()
-                torch.cuda.empty_cache()
-                if global_rank==0:
-                    training_time+=end_time-start_time
-                    with open(args.save_results,'a') as f:
-                        print("step time = {}".format(end_step_time-start_step_time),file=f)
-                        print(f"--------------- finish training step {i}",file=f)
-                        print(i, time.time()-start_time,file=f) 
-            torch.cuda.empty_cache()
-            pipeline.PrefetchThreadManager.shutdown()
-            pipeline.OffloadThreadManager.shutdown()
-            PrefetchThreadManager=ThreadManager()
-            OffloadThreadManager=ThreadManager()
-            pipeline=Pipeline(args,module_list,world_size,global_rank,local_rank,embedding_layer,train_batches,norm_layer,lm_head,PrefetchThreadManager,OffloadThreadManager) 
-            '''
-            pipeline=Pipeline(args,module_list,world_size,global_rank,local_rank,embedding_layer,train_batches,norm_layer,lm_head,OffloadThreadManager)
-            '''
-            prof.step() 
+    # with torch.profiler.profile(
+    #     activities=[
+    #         torch.profiler.ProfilerActivity.CPU,
+    #         torch.profiler.ProfilerActivity.CUDA
+    #     ],
+    #     schedule=torch.profiler.schedule(  
+    #         wait=2, 
+    #         warmup=3,  # 接下来的 2 步为 warm-up
+    #         active=1   # 随后 1 步记录 profiling 数据
+    #     ),
+    #     record_shapes=True,       # 记录张量形状
+    #     with_stack=True,          # 记录调用堆栈
+    #     on_trace_ready=torch.profiler.tensorboard_trace_handler('./tmp_log')  # 保存日志以供 TensorBoard 使用
+    # ) as prof:
+    #     for step in range(6):   
+    #         if step==5:
+    #             num_iterations=args.num_iterations
+    #         else:
+    #             num_iterations=2
+    # pipeline execution
+    training_time=0
+    for i in range(args.num_iterations):
+        start_time=time.time()
+        pipeline.optimizer.zero_grad()
+        pipeline.run_pipeline(action_list)
+        dist.barrier()
+        OffloadThreadManager.wait_for_task_completion()
+        torch.cuda.synchronize()
+        end_time=time.time()
+        start_step_time=time.time()
+        pipeline.optimizer.step()
+        end_step_time=time.time()
+        torch.cuda.empty_cache()
+        if global_rank==0:
+            training_time+=end_time-start_time
+            with open(args.save_results,'a') as f:
+                print("step time = {}".format(end_step_time-start_step_time),file=f)
+                print(f"--------------- finish training step {i}",file=f)
+                print(i, time.time()-start_time,file=f) 
+    torch.cuda.empty_cache()
+    pipeline.PrefetchThreadManager.shutdown()
+    pipeline.OffloadThreadManager.shutdown()
+    #         PrefetchThreadManager=ThreadManager()
+    #         OffloadThreadManager=ThreadManager()
+    #         pipeline=Pipeline(args,module_list,world_size,global_rank,local_rank,embedding_layer,train_batches,norm_layer,lm_head,PrefetchThreadManager,OffloadThreadManager) 
+    #         '''
+    #         pipeline=Pipeline(args,module_list,world_size,global_rank,local_rank,embedding_layer,train_batches,norm_layer,lm_head,OffloadThreadManager)
+    #         '''
+    #         prof.step() 
 
-    print(prof.key_averages().table(sort_by="cuda_memory_usage", row_limit=10))
+    # print(prof.key_averages().table(sort_by="cuda_memory_usage", row_limit=10))
 
     with open(args.save_results,'a') as f:
         verify_peak_memory(local_rank,f)
