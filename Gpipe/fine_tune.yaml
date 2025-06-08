@@ -1,0 +1,20 @@
+# fine_tune.yaml
+
+batch_size: 64
+num_chunks: 4
+seq_length: 128
+embedding_dim: 4096
+ff_dim: 4096
+num_iterations: 2
+num_stages: 8
+num_layers: 32
+num_heads: 32
+model: "llama-2-7b-hf"
+dataset: "xsum"
+save_results: "test_result.txt"
+use_prefetch: true     # 设置为 true 启用 prefetch
+use_offload: true      # 设置为 true 启用模型卸载
+
+# Device settings
+cuda_visible_devices: "0,2,1,3"
+master_port: 29502
