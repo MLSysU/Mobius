@@ -25,10 +25,11 @@ MMoC-Pipe addresses these challenges through an innovative combination of **pipe
 
 Our experimental results demonstrate significant improvements over existing methods:
 
-- **60% GPU Memory Reduction** compared to GPipe
+- **60% GPU Memory Reduction** compared to GPipe(only using pipeline architecture)
 - **25% Training Speed Improvement** over ZeRO-Offload
 - **Successful Full Fine-tuning** of LLaMA-2 (7B/13B) on 4×L20 commercial GPUs
 - **Enhanced Scalability** for larger batch sizes and sequence lengths
+
 
 ## 🎯 Target Use Cases
 
@@ -51,6 +52,11 @@ This implementation is designed for:
 2. You can change the settings in the fine_tune.yaml according to your practical needs. Here are some descriptions about the functions of all tunable parameters.
 3. Run the train.sh.
 `bash train.sh`
+### 🔬 Fine-tuning LLaMA-2-7B on XSum Dataset
+
+This example demonstrates how to fine-tune the LLaMA-2-7B model on the XSum dataset using our MMoC-Pipe system with the provided configuration file.
+
+
 
 ## 🤝 Contributing
 
