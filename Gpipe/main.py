@@ -288,11 +288,10 @@ if __name__ =="__main__":
         torch.distributed.barrier()
     
     state_dict = {}
-    for idx, module in enumerate(pipeline.local_module_list):
+    for idx, module in enumerate(pipeline.local_main_model_list):
         # 如果 module 在GPU上，to('cpu') 再state_dict
         module_cpu = module.to('cpu')
         state_dict[f"module_{idx}"] = module_cpu.state_dict()
-        # 如果后续还要继续用该module在gpu上继续训练/推理，建议再把它搬回原来的设备
         module.to(pipeline.device)
 
     # 保存
