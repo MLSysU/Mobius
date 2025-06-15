@@ -37,6 +37,7 @@ if __name__ =="__main__":
     parser.add_argument('--model',default='llama-2-7b-hf',type=str,help='specify the model name')
     parser.add_argument('--dataset',default='xsum',type=str,help='specify the dataset name')
     parser.add_argument('--save_results',default='test_result.txt',type=str,help='file to save the results')
+    parser.add_argument('--save_dir',default='save_ckpt',type=str,help='file to save the checkpoint')
     parser.add_argument('--use_prefetch', action='store_true', help='Enable prefetch trick')
     parser.add_argument('--no_prefetch', action='store_false', dest='use_prefetch', help='Disable prefetch trick')
     parser.add_argument('--use_offload', action='store_true',help='use model offload strategy in forward process')
@@ -72,12 +73,16 @@ if __name__ =="__main__":
     When running this file on your machine, please annotate line62-line70 && anti-annotate line52-line60.
     '''
 
+    '''
     if args.model == 'llama-2-7b-hf':
         model_path = '/data/home/liuhuimin/mobius/Mobius/transformer/model_cache/models--meta-llama--Llama-2-7b-hf/snapshots/first_cache'  # [title](https://blog.csdn.net/ly_twt/article/details/140589319)
         hf_repo_id = 'meta-llama/Llama-2-7b-hf' 
     elif args.model == 'llama-2-13b-hf':
         model_path = '/data/home/liuhuimin/mobius/Mobius/transformer/model_cache/models--meta-llama--Llama-2-13b-hf/snapshots/first_cache'
         hf_repo_id = 'meta-llama/Llama-2-13b-hf'
+    elif args.model == 'Qwen/Qwen3-14B':
+        model_path = '/data/home/liuhuimin/mobius/Mobius/transformer/model_cache/models--Qwen-Qwen-3-14b/snapshots/first_cache'
+        hf_repo_id = 'Qwen/Qwen3-14B'
     else:
         raise ValueError(f"Unsupported model: {args.model}")
 
@@ -116,7 +121,77 @@ if __name__ =="__main__":
     norm_layer = model.model.norm
     lm_head = model.lm_head
     layers_list = list(model.model.layers)
+    '''
 
+    if args.model == 'llama-2-7b-hf':
+        model_path = '/data/home/liuhuimin/mobius/Mobius/transformer/model_cache/models--meta-llama--Llama-2-7b-hf/snapshots/first_cache'
+        hf_repo_id = 'meta-llama/Llama-2-7b-hf'
+        model_type = 'llama'
+    elif args.model == 'llama-2-13b-hf':
+        model_path = '/data/home/liuhuimin/mobius/Mobius/transformer/model_cache/models--meta-llama--Llama-2-13b-hf/snapshots/first_cache'
+        hf_repo_id = 'meta-llama/Llama-2-13b-hf'
+        model_type = 'llama'
+    elif args.model == 'Qwen/Qwen3-14B':
+        model_path = '/data/home/liuhuimin/mobius/Mobius/transformer/model_cache/models--Qwen-Qwen-3-14b/snapshots/first_cache'
+        hf_repo_id = 'Qwen/Qwen3-14B'
+        model_type = 'qwen'
+    else:
+        raise ValueError(f"Unsupported model: {args.model}")
+
+    # 检查本地缓存是否存在
+    if not os.path.exists(model_path):
+        print(f"Local model cache not found at {model_path}, downloading from Hugging Face Hub...")
+        
+        # 对于Llama模型需要先通过官方授权才能下载
+        if model_type == 'llama':
+            login(
+                token="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",
+                add_to_git_credential=True
+            )
+        
+        try:
+            # 根据模型类型选择相应的模型类
+            if model_type == 'llama':
+                from transformers import LlamaForCausalLM
+                model_class = LlamaForCausalLM
+            elif model_type == 'qwen':
+                from transformers import AutoModelForCausalLM
+                model_class = AutoModelForCausalLM
+            
+            # 自动创建缓存目录结构
+            model = model_class.from_pretrained(
+                hf_repo_id,
+                cache_dir=os.path.dirname(os.path.dirname(model_path))
+            )
+            tokenizer = AutoTokenizer.from_pretrained(
+                hf_repo_id,
+                cache_dir=os.path.dirname(os.path.dirname(model_path))
+            )
+            print(f"Model downloaded and cached at: {model_path}")
+        except Exception as e:
+            print(f"下载失败: {str(e)} (建议检查huggingface访问权限和网络连接)")
+            raise
+    else:
+        print(f"Using cached model at: {model_path}")
+        
+        # 根据模型类型加载模型
+        if model_type == 'llama':
+            from transformers import LlamaForCausalLM
+            model = LlamaForCausalLM.from_pretrained(model_path)
+        elif model_type == 'qwen':
+            from transformers import AutoModelForCausalLM
+            model = AutoModelForCausalLM.from_pretrained(model_path)
+        
+        tokenizer = AutoTokenizer.from_pretrained(model_path)
+
+    # 提取模型组件 - 根据不同模型架构进行适配
+    config = model.config
+
+    # Llama模型的组件提取
+    embedding_layer = model.model.embed_tokens
+    norm_layer = model.model.norm
+    lm_head = model.lm_head
+    layers_list = list(model.model.layers)
 
     # load dataset and preprocess it.
     train_batches=None
@@ -207,6 +282,23 @@ if __name__ =="__main__":
     if global_rank==0:
         with open(args.save_results,'a') as f:
             print("training time = {}".format(training_time),file=f)
+
+    if global_rank == 0:
+        os.makedirs(args.save_dir, exist_ok=True)
+        torch.distributed.barrier()
+    
+    state_dict = {}
+    for idx, module in enumerate(pipeline.local_module_list):
+        # 如果 module 在GPU上，to('cpu') 再state_dict
+        module_cpu = module.to('cpu')
+        state_dict[f"module_{idx}"] = module_cpu.state_dict()
+        # 如果后续还要继续用该module在gpu上继续训练/推理，建议再把它搬回原来的设备
+        module.to(pipeline.device)
+
+    # 保存
+    checkpoint_path = os.path.join(args.save_dir, f"pipeline_stage_{global_rank}.pth")
+    torch.save(state_dict, checkpoint_path)
+    print(f"[Rank {global_rank}] pipeline checkpoint saved to {checkpoint_path}")
     
     dist.destroy_process_group()
     '''
