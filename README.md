@@ -2,32 +2,36 @@
 
 ## 🚀 Introduction
 
-This repository contains the official implementation of **MMoC-Pipe** (Memory-efficient Multi-stage offloading and Communication-optimized Pipeline), a novel system for full fine-tuning of large language models in resource-constrained environments. Our approach is detailed in the paper *"基于流水线和卸载的低资源大模型全量精调优化"* (Memory-Efficient Full Fine-Tuning via Pipeline and Offloading for Large Models under Resource Constraints).
+This repository contains the official implementation of **MMoC-Pipe** (LLM Full Fine-tuning with Low Resources using Pipeline Parallelism, Offload Strategy and Cross-Mapping), a novel system for full fine-tuning of large language models in resource-constrained environments (one node with low GPU memory and PCIe communication). 
 
 ## 🎯 Problem Statement
 
 Full fine-tuning of large language models (LLMs) faces significant challenges in low-resource environments:
-- **Memory bottleneck**: Models like LLaMA-2 (7B/13B) require substantial GPU memory
+- **Memory bottleneck**: Even models like LLaMA-2 (7B/13B) require substantial GPU memory
 - **Limited hardware**: Commercial GPUs with restricted memory and bandwidth
-- **Training efficiency**: Need for optimal resource utilization and faster convergence
+- **Training efficiency**: Need for optimal resource utilization and faster training speed
 
 ## 💡 Our Solution
 
-MMoC-Pipe addresses these challenges through an innovative combination of **pipeline parallelism** and **dynamic memory offloading**:
+MMoC-Pipe addresses these challenges through an innovative combination of **pipeline parallelism**, **dynamic memory offloading** and **cross-mapping**:
 
 ### Key Innovations
 - **Multi-stage Memory Management**: Intelligent offloading between CPU-GPU heterogeneous storage
 - **Communication-Computation Overlap**: Optimized pipeline execution with reduced idle time
-- **PCIe-aware Stage Mapping**: Strategic placement of pipeline stages to minimize communication overhead
+- **Cross Mapping**: Strategic placement of pipeline stages to minimize communication overhead
 - **Multi-threaded Execution**: Concurrent data movement and computation for improved throughput
+
+### System Architecture
+
 
 ## 📊 Performance Highlights
 
 Our experimental results demonstrate significant improvements over existing methods:
 
-- **60% GPU Memory Reduction** compared to GPipe(only using pipeline architecture)
-- **25% Training Speed Improvement** over ZeRO-Offload
 - **Successful Full Fine-tuning** of LLaMA-2 (7B/13B) on 4×L20 commercial GPUs
+- **60% GPU Memory Reduction** compared to GPipe(only using pipeline architecture)
+  
+- **25% Training Speed Improvement** over ZeRO-Offload
 - **Enhanced Scalability** for larger batch sizes and sequence lengths
 
 
