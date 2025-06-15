@@ -22,7 +22,7 @@ MMoC-Pipe addresses these challenges through an innovative combination of **pipe
 - **Multi-threaded Execution**: Concurrent data movement and computation for improved throughput
 
 ### System Architecture
-
+![MMoC-Pipe Architecture](./assets/architecture.png)
 
 ## 📊 Performance Highlights
 
@@ -30,8 +30,9 @@ Our experimental results demonstrate significant improvements over existing meth
 
 - **Successful Full Fine-tuning** of LLaMA-2 (7B/13B) on 4×L20 commercial GPUs
 - **60% GPU Memory Reduction** compared to GPipe(only using pipeline architecture)
-  
+  ![Comparison on memory occupation to baselines](./assets/memory-occup.png)
 - **25% Training Speed Improvement** over ZeRO-Offload
+- ![Comparison on training speed to baselines](./assets/training-time.png)
 - **Enhanced Scalability** for larger batch sizes and sequence lengths
 
 
