@@ -1,4 +1,4 @@
-# MMoC-Pipe: Memory-Efficient Full Fine-Tuning for Large Language Models
+# MMoC-Pipe: LLM Full Fine-tuning with Low Resources using Pipeline Parallelism, Offload Strategy and Cross-Mapping
 
 ## 🚀 Introduction
 
