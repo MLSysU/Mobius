@@ -66,11 +66,10 @@ This example demonstrates how to fine-tune the LLaMA-2-7B model on the XSum data
 
 ## 🤝 Contributing
 
-We welcome contributions from the community. Please see our [contribution guidelines](CONTRIBUTING.md) for more details.
+We welcome contributions from the community. 
 
-## 📄 License
 ## 📧 Contacts
-
+If you have any questions, please raise an issue or contact us at liuhm59@mail2.sysu.edu.cn
 
 
 
