@@ -16,10 +16,11 @@ Full fine-tuning of large language models (LLMs) faces significant challenges in
 MMoC-Pipe addresses these challenges through an innovative combination of **pipeline parallelism**, **dynamic memory offloading** and **cross-mapping**:
 
 ### Key Innovations
-- **Multi-stage Memory Management**: Intelligent offloading between CPU-GPU heterogeneous storage
-- **Communication-Computation Overlap**: Optimized pipeline execution with reduced idle time
+- **Multi-stage Per Device**: Traditional pipeline parallelism partitions model layers into N stages, with N indicating the number of GPUs. We instead adopt virtual pipeline strategy, which partitions model layers into v*N stages, with every GPU executing v pipeline stages in turns. Take N=4, v=2 for example. The 8 virtual stages (v×N=2×4) are distributed cyclically among the 4 GPUs: GPU1 handles stages 1 and 5, GPU2 handles stages 2 and 6, GPU3 handles stages 3 and 7, and GPU4 handles stages 4 and 8.
+- **Model Offload**: We dynamically offload model parameters into CPU during the training process, saving HBM for activations and gradients.
+- **Communication-Computation Overlap**: Optimized pipeline execution with reduced idle time 
 - **Cross Mapping**: Strategic placement of pipeline stages to minimize communication overhead
-- **Multi-threaded Execution**: Concurrent data movement and computation for improved throughput
+- **Multi-stream && Multi-threaded Execution**: Concurrent data movement and computation for improved throughput
 
 ### System Architecture
 ![MMoC-Pipe Architecture](./assets/architecture.png)
@@ -32,7 +33,7 @@ Our experimental results demonstrate significant improvements over existing meth
 - **60% GPU Memory Reduction** compared to GPipe(only using pipeline architecture)
   ![Comparison on memory occupation to baselines](./assets/memory-occup.png)
 - **25% Training Speed Improvement** over ZeRO-Offload
-- ![Comparison on training speed to baselines](./assets/training-time.png)
+  ![Comparison on training speed to baselines](./assets/training-time.png)
 - **Enhanced Scalability** for larger batch sizes and sequence lengths
 
 
@@ -49,12 +50,12 @@ This implementation is designed for:
 - NVIDIA GPUs (tested on L20, adaptable to other models)
 - CUDA-compatible environment
 - Sufficient CPU memory for offloading operations
-- High-bandwidth CPU-GPU interconnect (PCIe recommended)
+- CPU-GPU interconnect (PCIe supported)
 
 ## 📚 Getting Started
 
 1. You can directly use the docker file or install your environment locally according to the environment.yml.
-2. You can change the settings in the fine_tune.yaml according to your practical needs. Here are some descriptions about the functions of all tunable parameters.
+2. Change the settings in the fine_tune.yaml according to your practical needs. Here are some descriptions about the functions of all tunable parameters.
 3. Run the train.sh.
 `bash train.sh`
 ### 🔬 Fine-tuning LLaMA-2-7B on XSum Dataset
