@@ -78,7 +78,7 @@ This implementation is designed for:
     | `master_port` | 29502 | Port number for distributed training communication |
 4. Run the train.sh.
 `bash train.sh`
-### 🔬 Fine-tuning LLaMA-2-7B on XSum Dataset
+### 🔬 Example: Fine-tuning LLaMA-2-7B on XSum Dataset
 
 This example demonstrates how to fine-tune the LLaMA-2-7B model on the XSum dataset using our MMoC-Pipe system with the provided configuration file.
 
