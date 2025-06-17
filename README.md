@@ -86,7 +86,7 @@ This example demonstrates how to fine-tune the LLaMA-2-7B model on the XSum data
 2. run `bash train.sh`
 3. get the ckpt
    
-   <img src="./assets/ckpt.png" width="50%" alt="Checkpoint image">
+   <img src="./assets/ckpt.png" width="25%" alt="Checkpoint image">
 
 ## 🤝 Contributing
 
