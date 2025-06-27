@@ -60,8 +60,9 @@ MMoC-Pipe通过创新结合**流水线并行**、**动态内存卸载**和**交�
 ## 📚 快速开始
 
 1. 您可以直接使用下面的docker文件，或根据environment.yml在本地安装环境。
+   
    `docker pull coir1hat1man/mobius:latest`
-2. 根据您的实际需求修改fine_tune.yaml中的设置。以下是所有可调参数功能的描述。
+3. 根据您的实际需求修改fine_tune.yaml中的设置。以下是所有可调参数功能的描述。
     | 参数 | 值 | 描述 |
     |------|----|----- |
     | `batch_size` | 64 | 每个训练批次处理的样本数量 |
@@ -81,7 +82,7 @@ MMoC-Pipe通过创新结合**流水线并行**、**动态内存卸载**和**交�
     | `use_offload` | true | 启用模型参数卸载以减少GPU内存使用 |
     | `cuda_visible_devices` | "0,2,1,3" | 用于训练的GPU设备ID（流水线阶段的特定顺序） |
     | `master_port` | 29502 | 分布式训练通信的端口号 |
-3. 运行train.sh。
+4. 运行train.sh。
 `bash train.sh`
 
 ### 🔬 示例：在XSum数据集上微调LLaMA-2-7B
